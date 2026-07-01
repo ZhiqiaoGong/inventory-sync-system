@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets
+.env
+
+# Local SQLite database
+*.db
+*.db-wal
+*.db-shm
+
+# OS files
+.DS_Store
+
+# Logs
+*.log

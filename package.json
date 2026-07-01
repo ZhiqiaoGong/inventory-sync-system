@@ -1,0 +1,19 @@
+{
+  "name": "tiered-inventory-sync-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiered cross-platform inventory sync system for Shopify + Etsy + internal inventory table",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js",
+    "init-db": "node scripts/initDb.js",
+    "import-csv": "node scripts/importInventoryCsv.js",
+    "sync-orders": "node scripts/syncOrdersOnce.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
