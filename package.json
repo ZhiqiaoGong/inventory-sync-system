@@ -9,7 +9,8 @@
     "dev": "node src/server.js",
     "init-db": "node scripts/initDb.js",
     "import-csv": "node scripts/importInventoryCsv.js",
-    "sync-orders": "node scripts/syncOrdersOnce.js"
+    "sync-orders": "node scripts/syncOrdersOnce.js",
+    "demo": "node scripts/demo.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",

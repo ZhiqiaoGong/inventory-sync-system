@@ -1,12 +1,19 @@
 require('dotenv').config();
+const { mockShopifyOrders, mockEtsyReceipts } = require('./mockData');
 
 // =========================
-// 这个文件专门负责“平台 API 封装”。
-// 目的：
-// 1. 把 Shopify / Etsy 的请求写在一起
-// 2. 业务逻辑层不需要关心太多 HTTP 细节
-// 3. 以后如果换 API 版本，也只改这里
+// This file wraps the platform APIs.
+// Goals:
+// 1. keep the Shopify / Etsy requests in one place
+// 2. keep HTTP details out of the business logic layer
+// 3. if the API version changes, only this file changes
 // =========================
+
+// When PLATFORM_MODE=mock, use the built-in mock data instead of real APIs,
+// so the whole flow runs without any Shopify / Etsy credentials.
+// Defaults to mock so the project can be cloned and demoed immediately;
+// switch to live to hit the real platforms.
+const PLATFORM_MODE = (process.env.PLATFORM_MODE || 'mock').toLowerCase();
 
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_ADMIN_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
@@ -37,7 +44,7 @@ async function requestJson(url, options = {}) {
 }
 
 // =========================
-// Shopify 部分
+// Shopify
 // =========================
 
 function getShopifyHeaders() {
@@ -48,8 +55,12 @@ function getShopifyHeaders() {
 }
 
 async function fetchShopifyPaidOrders({ status = 'any', limit = 50 } = {}) {
-  // 这里示例用 REST API 拉订单。
-  // 实际上线时，你也可以换成 webhook 驱动。
+  if (PLATFORM_MODE === 'mock') {
+    return mockShopifyOrders.slice(0, limit);
+  }
+
+  // This example pulls orders via the REST API.
+  // In production you could also switch to a webhook-driven approach.
   const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders.json?financial_status=paid&status=${status}&limit=${limit}`;
   const data = await requestJson(url, {
     method: 'GET',
@@ -60,8 +71,14 @@ async function fetchShopifyPaidOrders({ status = 'any', limit = 50 } = {}) {
 }
 
 async function setShopifyInventoryAbsolute({ inventoryItemId, locationId, available }) {
-  // 注意：Shopify 有 adjust（增量）和 set（绝对值）两种思路。
-  // 这里为了简化系统，我们采用“把目标库存写成明确值”的方式。
+  if (PLATFORM_MODE === 'mock') {
+    // In mock mode we do not make a real request; return a success-like result
+    // and let the business layer record the sync log as usual.
+    return { mock: true, inventory_item_id: Number(inventoryItemId), location_id: Number(locationId), available: Number(available) };
+  }
+
+  // Note: Shopify has both adjust (delta) and set (absolute) approaches.
+  // To keep the system simple we use "set the target quantity as an explicit value".
   const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/inventory_levels/set.json`;
   return requestJson(url, {
     method: 'POST',
@@ -75,7 +92,7 @@ async function setShopifyInventoryAbsolute({ inventoryItemId, locationId, availa
 }
 
 // =========================
-// Etsy 部分
+// Etsy
 // =========================
 
 function getEtsyHeaders() {
@@ -86,22 +103,32 @@ function getEtsyHeaders() {
 }
 
 async function fetchEtsyReceipts({ limit = 50 } = {}) {
-  // Etsy 的具体订单字段和分页逻辑会随 API 使用方式略有不同。
-  // 这里提供一个“已拿到 access token 后”的可运行框架。
+  if (PLATFORM_MODE === 'mock') {
+    return mockEtsyReceipts.slice(0, limit);
+  }
+
+  // Etsy's exact order fields and pagination vary with how the API is used.
+  // This is a runnable framework for the "already have an access token" case.
   const url = `${ETSY_API_BASE}/shops/${ETSY_SHOP_ID}/receipts?limit=${limit}`;
   const data = await requestJson(url, {
     method: 'GET',
     headers: getEtsyHeaders()
   });
 
-  // Etsy 常见返回结构可能是 results。
+  // Etsy commonly returns results under `results`.
   return data.results || [];
 }
 
 async function updateEtsyListingInventory({ listingId, productsPayload }) {
-  // Etsy 的库存更新通常是针对 listing inventory。
-  // 真实场景里，你需要按 Etsy 的 listing inventory 结构传入 products。
-  // 这里保留一个清晰的封装入口，方便你以后按店铺实际数据补全。
+  if (PLATFORM_MODE === 'mock') {
+    // In mock mode we do not make a real request; return a success-like result.
+    return { mock: true, listing_id: Number(listingId), products: productsPayload };
+  }
+
+  // Etsy inventory updates target the listing inventory.
+  // In a real setup you need to pass `products` matching Etsy's listing
+  // inventory structure. This keeps a clear wrapper entry point so you can
+  // fill it in later against your shop's actual data.
   const url = `${ETSY_API_BASE}/listings/${listingId}/inventory`;
   return requestJson(url, {
     method: 'PUT',

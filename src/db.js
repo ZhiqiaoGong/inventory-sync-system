@@ -2,53 +2,53 @@ const Database = require('better-sqlite3');
 const path = require('path');
 require('dotenv').config();
 
-// 这里统一创建 SQLite 数据库连接。
-// SQLite 的好处是：
-// 1. 不需要额外安装数据库服务
-// 2. 本地运行非常方便
-// 3. 适合小型系统原型 / MVP
+// Create the single SQLite database connection here.
+// SQLite is a good fit because:
+// 1. no separate database service to install
+// 2. very convenient to run locally
+// 3. suitable for a small system prototype / MVP
 const dbPath = process.env.DB_PATH || './inventory.db';
 const db = new Database(path.resolve(dbPath));
 
-// WAL 模式更适合 Web 服务场景，读写表现更稳。
+// WAL mode behaves better for a web service (more stable reads/writes).
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
-// 初始化数据库表。
+// Create the database tables.
 function initDb() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS inventory_items (
-      -- 系统内部主键
+      -- internal primary key
       id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-      -- 内部统一 SKU，整个系统用它作为核心标识
+      -- internal unified SKU, used as the core identifier across the system
       internal_sku TEXT NOT NULL UNIQUE,
 
-      -- 商品名称，主要用于可读性展示
+      -- product name, mainly for readable display
       product_name TEXT,
 
-      -- SKU 层级：
-      -- tier1 = fully_managed，可自动同步
-      -- tier2 = tracked_not_synced，只做跟踪，不回写平台
-      -- tier3 = unmanaged，继续人工处理
+      -- SKU tier:
+      -- tier1 = fully_managed, can be auto-synced
+      -- tier2 = tracked_not_synced, tracked only, no write-back
+      -- tier3 = unmanaged, still handled manually
       tier TEXT NOT NULL CHECK(tier IN ('tier1', 'tier2', 'tier3')),
 
-      -- 是否开启同步，通常 tier1 会是 1，其余多半是 0
+      -- whether sync is enabled, usually 1 for tier1 and 0 for the rest
       sync_enabled INTEGER NOT NULL DEFAULT 0,
 
-      -- 是否在系统中启用监控
+      -- whether monitoring is enabled in the system
       monitoring_enabled INTEGER NOT NULL DEFAULT 1,
 
-      -- 当前系统内部认定的“可用件数”
+      -- the "available units" the system currently believes it has
       available_units INTEGER,
 
-      -- 低库存阈值，用于告警
+      -- low-stock threshold, used for alerts
       low_stock_threshold INTEGER,
 
-      -- 如果一个商品一包有多少件，可以记录在这里
+      -- how many units are in one pack, if applicable
       units_per_pack INTEGER,
 
-      -- 备注，用来记录为什么这个 SKU 不能自动同步之类的信息
+      -- notes, e.g. why this SKU cannot be auto-synced
       notes TEXT,
 
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -59,13 +59,13 @@ function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       internal_sku TEXT NOT NULL,
 
-      -- Shopify 侧映射
+      -- Shopify-side mapping
       shopify_sku TEXT,
       shopify_variant_id TEXT,
       shopify_inventory_item_id TEXT,
       shopify_location_id TEXT,
 
-      -- Etsy 侧映射
+      -- Etsy-side mapping
       etsy_sku TEXT,
       etsy_listing_id TEXT,
       etsy_offering_id TEXT,
@@ -80,19 +80,19 @@ function initDb() {
     CREATE TABLE IF NOT EXISTS order_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-      -- 平台：shopify / etsy
+      -- platform: shopify / etsy
       platform TEXT NOT NULL CHECK(platform IN ('shopify', 'etsy')),
 
-      -- 平台侧事件 ID 或订单 ID
+      -- platform-side event id or order id
       external_event_id TEXT NOT NULL,
       external_order_id TEXT NOT NULL,
       order_name TEXT,
       order_status TEXT,
 
-      -- 原始 JSON，便于排查问题
+      -- raw JSON, kept for troubleshooting
       raw_payload TEXT,
 
-      -- 是否已经处理过（幂等）
+      -- whether it has already been processed (idempotency)
       processed INTEGER NOT NULL DEFAULT 0,
 
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -106,10 +106,10 @@ function initDb() {
       order_event_id INTEGER NOT NULL,
       platform TEXT NOT NULL CHECK(platform IN ('shopify', 'etsy')),
 
-      -- 平台原始 SKU
+      -- raw platform SKU
       platform_sku TEXT,
 
-      -- 解析后对应的内部 SKU
+      -- resolved internal SKU
       internal_sku TEXT,
 
       quantity INTEGER NOT NULL,
@@ -123,10 +123,10 @@ function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       internal_sku TEXT NOT NULL,
 
-      -- 变更原因：
-      -- sale = 订单销售
-      -- manual_adjustment = 人工修正
-      -- import_snapshot = 导入库存快照
+      -- reason for the change:
+      -- sale = order sale
+      -- manual_adjustment = manual correction
+      -- import_snapshot = imported inventory snapshot
       reason TEXT NOT NULL,
 
       platform TEXT,
@@ -152,8 +152,9 @@ function initDb() {
   `);
 }
 
-// 预编译语句依赖表已存在，所以在这里先建好表，
-// 避免任何文件 require('./db') 时因为表还没建而报错。
+// The prepared statements below require the tables to exist, so create the
+// tables here first. This avoids errors when any file does require('./db')
+// before the tables have been created.
 initDb();
 
 const statements = {

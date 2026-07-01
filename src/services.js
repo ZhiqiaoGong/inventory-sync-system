@@ -10,11 +10,10 @@ const DEFAULT_LOW_STOCK_THRESHOLD = Number(process.env.DEFAULT_LOW_STOCK_THRESHO
 const SHOPIFY_LOCATION_ID = process.env.SHOPIFY_LOCATION_ID || null;
 
 // ======================================================
-// 这个文件是整个系统的“业务逻辑层”。
-// 也就是说：
-// - 平台 API 只是工具
-// - 数据库只是存储
-// - 真正的业务规则在这里
+// This file is the business logic layer of the system:
+// - the platform APIs are just tools
+// - the database is just storage
+// - the real business rules live here
 // ======================================================
 
 function normalizeTier(rawTier) {
@@ -36,8 +35,7 @@ function nullableInt(rawValue) {
 }
 
 function importInventoryRows(rows) {
-  // 这里提供一个批量导入库存 CSV 的逻辑。
-  // 每一行代表一个内部 SKU。
+  // Bulk-import inventory rows from CSV. Each row is one internal SKU.
   const tx = db.transaction((items) => {
     for (const row of items) {
       const tier = normalizeTier(row.tier);
@@ -76,13 +74,13 @@ function importInventoryRows(rows) {
 }
 
 function resolveInternalSkuForShopifyLineItem(item) {
-  // 优先按 Shopify variant_id 匹配，因为它比名称更稳定。
+  // Prefer matching by Shopify variant_id, since it is more stable than the name.
   if (item.variant_id != null) {
     const hit = statements.findInventoryItemByShopifyVariantId.get(String(item.variant_id));
     if (hit) return hit;
   }
 
-  // 如果 variant_id 没配好，再退化到按 SKU 匹配。
+  // If variant_id is not configured, fall back to matching by SKU.
   const sku = (item.sku || '').trim();
   if (sku) {
     return statements.findInventoryItemByPlatformSku.get(sku, '__NO_ETSY_SKU__') || null;
@@ -92,7 +90,7 @@ function resolveInternalSkuForShopifyLineItem(item) {
 }
 
 function resolveInternalSkuForEtsyLineItem(item) {
-  // 这里尽量兼容不同 Etsy 数据字段命名。
+  // Be tolerant of different Etsy field names.
   const candidateSku = (item.sku || item.skus || '').toString().trim();
   if (candidateSku) {
     return statements.findInventoryItemByPlatformSku.get('__NO_SHOPIFY_SKU__', candidateSku) || null;
@@ -101,7 +99,7 @@ function resolveInternalSkuForEtsyLineItem(item) {
 }
 
 function saveOrderEventWithItems({ platform, externalEventId, externalOrderId, orderName, orderStatus, rawPayload, items }) {
-  // 幂等：如果这个事件之前已经处理过，就不重复写入。
+  // Idempotency: if this event was already processed, do not write it again.
   const existed = statements.findOrderEventByPlatformAndEventId.get(platform, externalEventId);
   if (existed) {
     return { duplicate: true, orderEventId: existed.id };
@@ -140,8 +138,8 @@ function saveOrderEventWithItems({ platform, externalEventId, externalOrderId, o
 async function pushInventoryToPlatforms(internalSku, targetQuantity) {
   const mapping = statements.findSkuMappingByInternalSku.get(internalSku);
   if (!mapping) {
-    statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'skipped', '找不到 SKU mapping');
-    statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'skipped', '找不到 SKU mapping');
+    statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'skipped', 'no SKU mapping found');
+    statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'skipped', 'no SKU mapping found');
     return;
   }
 
@@ -152,7 +150,7 @@ async function pushInventoryToPlatforms(internalSku, targetQuantity) {
   }
 
   // ----------------------
-  // Shopify 推送
+  // Shopify write-back
   // ----------------------
   try {
     if (mapping.shopify_inventory_item_id && (mapping.shopify_location_id || SHOPIFY_LOCATION_ID)) {
@@ -161,27 +159,27 @@ async function pushInventoryToPlatforms(internalSku, targetQuantity) {
         locationId: mapping.shopify_location_id || SHOPIFY_LOCATION_ID,
         available: targetQuantity
       });
-      statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'success', 'Shopify 库存更新成功');
+      statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'success', 'Shopify inventory updated');
     } else {
-      statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'skipped', '缺少 Shopify inventory mapping');
+      statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'skipped', 'missing Shopify inventory mapping');
     }
   } catch (error) {
     statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'failed', error.message);
   }
 
   // ----------------------
-  // Etsy 推送
+  // Etsy write-back
   // ----------------------
-  // 这里提供了一个“接口入口”，但 Etsy inventory payload 在不同 listing 结构下会更复杂。
-  // 所以这里采取最稳妥的做法：
-  // - 如果你已经整理好了 listing inventory payload 结构，可以直接替换 productsPayload
-  // - 如果暂时还没整理好，先记日志，不硬推送
+  // This provides a call entry point, but the Etsy inventory payload is more
+  // complex and depends on each listing's structure. So we take the safest path:
+  // - if you have prepared a real listing inventory payload, replace productsPayload
+  // - if not yet, just log it instead of force-pushing
   try {
     if (mapping.etsy_listing_id && mapping.etsy_offering_id) {
       const productsPayload = {
-        // 这里是一个占位示例。
-        // 真实 Etsy inventory payload 通常需要更完整的 products / offerings 结构。
-        // 如果你的店里 listing 结构统一，你可以在这里扩展成真实 payload。
+        // This is a placeholder example.
+        // A real Etsy inventory payload usually needs a fuller products / offerings structure.
+        // If your listings share a consistent structure, extend this into a real payload here.
         products: [
           {
             offerings: [
@@ -199,9 +197,9 @@ async function pushInventoryToPlatforms(internalSku, targetQuantity) {
         listingId: mapping.etsy_listing_id,
         productsPayload
       });
-      statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'success', 'Etsy 库存更新成功');
+      statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'success', 'Etsy inventory updated');
     } else {
-      statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'skipped', '缺少 Etsy mapping / offering id');
+      statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'skipped', 'missing Etsy mapping / offering id');
     }
   } catch (error) {
     statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'failed', error.message);
@@ -209,18 +207,18 @@ async function pushInventoryToPlatforms(internalSku, targetQuantity) {
 }
 
 async function applySaleToInventory({ platform, externalOrderId, internalSku, quantity, notes }) {
-  // 销售逻辑：订单来了，库存 -= quantity。
+  // Sale logic: an order arrives, so stock -= quantity.
   const item = statements.findInventoryItemByInternalSku.get(internalSku);
   if (!item) {
-    throw new Error(`internal_sku 不存在: ${internalSku}`);
+    throw new Error(`internal_sku not found: ${internalSku}`);
   }
 
-  // 如果这个 SKU 没有件级库存，就不能自动扣减。
-  // 这正对应 tier2 / tier3 的情况。
+  // If this SKU has no unit-level stock, it cannot be auto-decremented.
+  // This is exactly the tier2 / tier3 case.
   if (item.available_units === null || item.available_units === undefined) {
     return {
       status: 'tracked_only',
-      message: '该 SKU 目前没有可靠件级库存，仅记录订单，不自动扣减'
+      message: 'this SKU has no reliable unit-level stock; order recorded but not auto-decremented'
     };
   }
 
@@ -243,31 +241,31 @@ async function applySaleToInventory({ platform, externalOrderId, internalSku, qu
 
   tx();
 
-  // 只有 tier1 且 sync_enabled=1，才执行平台回写。
+  // Only tier1 with sync_enabled=1 writes back to the platforms.
   if (item.tier === 'tier1' && Number(item.sync_enabled) === 1) {
     await pushInventoryToPlatforms(internalSku, afterUnits);
     return {
       status: 'synced',
-      message: 'tier1 SKU 已扣减库存并尝试回写平台',
+      message: 'tier1 SKU: stock decremented and write-back attempted',
       beforeUnits,
       afterUnits
     };
   }
 
-  // tier2：只记录变化，不回写平台。
+  // tier2: record the change only, no write-back.
   if (item.tier === 'tier2') {
     return {
       status: 'tracked_only',
-      message: 'tier2 SKU 已记录内部库存/趋势，不回写平台',
+      message: 'tier2 SKU: internal stock/trend recorded, no write-back',
       beforeUnits,
       afterUnits
     };
   }
 
-  // tier3：保留人工流程。
+  // tier3: keep the manual workflow.
   return {
     status: 'manual',
-    message: 'tier3 SKU 保留人工流程，不回写平台',
+    message: 'tier3 SKU: manual workflow kept, no write-back',
     beforeUnits,
     afterUnits
   };
@@ -314,7 +312,7 @@ async function ingestShopifyOrders(orders) {
         eventResults.push({
           platformSku: item.platform_sku,
           status: 'unresolved',
-          message: '没有找到 internal SKU mapping 或数量无效'
+          message: 'no internal SKU mapping found or invalid quantity'
         });
         continue;
       }
@@ -324,7 +322,7 @@ async function ingestShopifyOrders(orders) {
         externalOrderId,
         internalSku: item.internal_sku,
         quantity: item.quantity,
-        notes: `Shopify 订单 ${order.name || order.id}`
+        notes: `Shopify order ${order.name || order.id}`
       });
 
       eventResults.push({
@@ -391,7 +389,7 @@ async function ingestEtsyReceipts(receipts) {
         eventResults.push({
           platformSku: item.platform_sku,
           status: 'unresolved',
-          message: '没有找到 internal SKU mapping 或数量无效'
+          message: 'no internal SKU mapping found or invalid quantity'
         });
         continue;
       }

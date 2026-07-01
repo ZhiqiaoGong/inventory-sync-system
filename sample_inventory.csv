@@ -1,4 +1,4 @@
 internal_sku,product_name,tier,sync_enabled,monitoring_enabled,available_units,low_stock_threshold,units_per_pack,notes,shopify_sku,shopify_variant_id,shopify_inventory_item_id,shopify_location_id,etsy_sku,etsy_listing_id,etsy_offering_id
-BALLOON-RED-STD,Red Balloon Standard,tier1,1,1,120,20,50,标准 SKU，可自动同步,BALLOON-RED-STD,111111111,222222222,333333333,BALLOON-RED-STD,444444444,555555555
-BALLOON-PINK-PACK,Pink Balloon Pack,tier2,0,1,60,15,100,按包管理，先只跟踪不自动同步,BALLOON-PINK-PACK,,,,BALLOON-PINK-PACK,,
-CUSTOM-BUNDLE-01,Custom Bundle 01,tier3,0,1,,10,,组合商品，暂时保留人工流程,CUSTOM-BUNDLE-01,,,,CUSTOM-BUNDLE-01,,
+BALLOON-RED-STD,Red Balloon Standard,tier1,1,1,120,20,50,Standard SKU - can be auto-synced,BALLOON-RED-STD,111111111,222222222,333333333,BALLOON-RED-STD,444444444,555555555
+BALLOON-PINK-PACK,Pink Balloon Pack,tier2,0,1,60,15,100,Managed by pack - tracked only for now,BALLOON-PINK-PACK,,,,BALLOON-PINK-PACK,,
+CUSTOM-BUNDLE-01,Custom Bundle 01,tier3,0,1,,10,,Bundle product - kept as manual workflow,CUSTOM-BUNDLE-01,,,,CUSTOM-BUNDLE-01,,

@@ -9,7 +9,7 @@ const {
   getLowStockItems
 } = require('./services');
 
-// 服务启动时先初始化数据库。
+// Initialize the database on startup.
 initDb();
 
 const app = express();
@@ -17,12 +17,12 @@ const PORT = Number(process.env.PORT || 3000);
 
 app.use(express.json({ limit: '2mb' }));
 
-// 健康检查接口。
+// Health check.
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-// 查看当前库存快照。
+// Current inventory snapshot.
 app.get('/inventory', (_req, res) => {
   res.json({
     ok: true,
@@ -30,7 +30,7 @@ app.get('/inventory', (_req, res) => {
   });
 });
 
-// 查看低库存商品。
+// Low-stock items.
 app.get('/inventory/low-stock', (_req, res) => {
   res.json({
     ok: true,
@@ -38,7 +38,7 @@ app.get('/inventory/low-stock', (_req, res) => {
   });
 });
 
-// 手动触发一次 Shopify 订单同步。
+// Manually trigger a Shopify order sync.
 app.post('/sync/shopify', async (_req, res) => {
   try {
     const orders = await fetchShopifyPaidOrders({ limit: 50 });
@@ -49,7 +49,7 @@ app.post('/sync/shopify', async (_req, res) => {
   }
 });
 
-// 手动触发一次 Etsy 订单同步。
+// Manually trigger an Etsy order sync.
 app.post('/sync/etsy', async (_req, res) => {
   try {
     const receipts = await fetchEtsyReceipts({ limit: 50 });
@@ -60,7 +60,7 @@ app.post('/sync/etsy', async (_req, res) => {
   }
 });
 
-// 一次性同步两个平台。
+// Sync both platforms in one call.
 app.post('/sync/all', async (_req, res) => {
   try {
     const [shopifyOrders, etsyReceipts] = await Promise.all([
