@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inventory Sync — Dashboard</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <h1>Inventory Sync</h1>
+        <span class="badge badge-mode" id="mode-badge">mock mode</span>
+      </div>
+      <div class="controls">
+        <label
+          class="outage-toggle"
+          title="Mock mode only: make every platform write-back fail with a simulated 503"
+        >
+          <input type="checkbox" id="outage-toggle" />
+          <span>Simulate platform outage</span>
+        </label>
+        <button id="btn-sync" class="btn btn-primary">Sync now</button>
+        <button id="btn-process" class="btn">Process push jobs</button>
+        <button id="btn-reconcile" class="btn">Reconcile</button>
+      </div>
+    </header>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <section class="stats" id="stats"></section>
+
+    <main class="grid">
+      <section class="card">
+        <h2>Inventory <span class="hint">single source of truth</span></h2>
+        <table id="inventory-table">
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Product</th>
+              <th>Tier</th>
+              <th class="num">Units</th>
+              <th class="num">Threshold</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Write-back pipeline <span class="hint">transactional outbox</span></h2>
+        <table id="jobs-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>SKU</th>
+              <th>Platform</th>
+              <th class="num">Target</th>
+              <th>Status</th>
+              <th class="num">Attempts</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Change ledger <span class="hint">append-only audit trail</span></h2>
+        <table id="ledger-table">
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Reason</th>
+              <th>Platform</th>
+              <th class="num">Change</th>
+              <th class="num">Before → After</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Reconciliation <span class="hint">ledger replay vs live stock</span></h2>
+        <div id="reconcile-report" class="reconcile-report">
+          <p class="muted">Run a reconciliation to replay the ledger against live stock.</p>
+        </div>
+        <h3>Recent runs</h3>
+        <table id="recon-table">
+          <thead>
+            <tr>
+              <th>When (UTC)</th>
+              <th class="num">SKUs</th>
+              <th class="num">Drift</th>
+              <th class="num">Chain issues</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer class="footer">
+      Tiered cross-platform inventory sync — Node.js + SQLite ·
+      <a
+        href="https://github.com/ZhiqiaoGong/inventory-sync-system"
+        target="_blank"
+        rel="noreferrer"
+        >source</a
+      >
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>

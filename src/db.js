@@ -403,6 +403,16 @@ const statements = {
 
   listReconciliationRuns: db.prepare(`
     SELECT * FROM reconciliation_runs ORDER BY id DESC LIMIT 20
+  `),
+
+  // ----- dashboard read models -----
+
+  listRecentLedger: db.prepare(`
+    SELECT * FROM inventory_ledger ORDER BY id DESC LIMIT ?
+  `),
+
+  listRecentPushJobs: db.prepare(`
+    SELECT * FROM push_jobs ORDER BY id DESC LIMIT ?
   `)
 };
 

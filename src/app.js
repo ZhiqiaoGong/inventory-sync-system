@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const { initDb } = require('./db');
 const { fetchShopifyPaidOrders, fetchEtsyReceipts } = require('./platforms');
@@ -7,6 +8,8 @@ const {
   ingestEtsyReceipts,
   getInventorySnapshot,
   getLowStockItems,
+  getRecentLedger,
+  getRecentPushJobs,
   processDuePushJobs,
   listDeadLetterJobs,
   requeueDeadLetterJob,
@@ -19,6 +22,9 @@ const { verifyShopifyWebhook } = require('./webhooks');
 initDb();
 
 const app = express();
+
+// Dashboard: a zero-build static page over the same HTTP API.
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Webhook route FIRST, with a raw body: HMAC verification must run on the
 // exact bytes Shopify sent, so this route must not go through express.json().
@@ -158,6 +164,33 @@ app.post('/reconcile', (_req, res) => {
 
 app.get('/reconciliations', (_req, res) => {
   res.json({ ok: true, runs: listReconciliationRuns() });
+});
+
+// Recent stock changes (audit trail), newest first.
+app.get('/ledger', (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  res.json({ ok: true, entries: getRecentLedger(limit) });
+});
+
+// Recent write-back jobs across all states, newest first.
+app.get('/push-jobs', (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  res.json({ ok: true, jobs: getRecentPushJobs(limit) });
+});
+
+// Mock-mode chaos switch: set the probability that a mock write-back fails,
+// so the retry -> dead-letter -> requeue pipeline can be demonstrated live
+// from the dashboard. Refused outside mock mode.
+app.post('/chaos', (req, res) => {
+  if ((process.env.PLATFORM_MODE || 'mock').toLowerCase() !== 'mock') {
+    return res.status(403).json({ ok: false, message: 'chaos is only available in mock mode' });
+  }
+  const rate = Number(req.body?.failureRate);
+  if (!(rate >= 0 && rate <= 1)) {
+    return res.status(400).json({ ok: false, message: 'failureRate must be between 0 and 1' });
+  }
+  process.env.MOCK_PUSH_FAILURE_RATE = String(rate);
+  res.json({ ok: true, failureRate: rate });
 });
 
 module.exports = app;

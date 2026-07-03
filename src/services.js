@@ -706,12 +706,22 @@ function getLowStockItems() {
   return statements.listLowStockItems.all();
 }
 
+function getRecentLedger(limit = 50) {
+  return statements.listRecentLedger.all(limit);
+}
+
+function getRecentPushJobs(limit = 50) {
+  return statements.listRecentPushJobs.all(limit);
+}
+
 module.exports = {
   importInventoryRows,
   ingestShopifyOrders,
   ingestEtsyReceipts,
   getInventorySnapshot,
   getLowStockItems,
+  getRecentLedger,
+  getRecentPushJobs,
   processDuePushJobs,
   listDeadLetterJobs,
   requeueDeadLetterJob,
