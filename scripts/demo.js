@@ -34,7 +34,11 @@ const {
   ingestShopifyOrders,
   ingestEtsyReceipts,
   getInventorySnapshot,
-  getLowStockItems
+  getLowStockItems,
+  processDuePushJobs,
+  listDeadLetterJobs,
+  requeueDeadLetterJob,
+  reconcileInventory
 } = require('../src/services');
 const { fetchShopifyPaidOrders, fetchEtsyReceipts } = require('../src/platforms');
 
@@ -134,6 +138,74 @@ async function main() {
   console.log(
     `BALLOON-RED-STD is still ${redAfterReplay.available_units} units: the replay did not double-count.`
   );
+
+  section('8. Write-back resilience: retry with backoff, then dead-letter');
+  console.log('Simulating a platform outage (every write-back fails) and selling 3 more units...');
+  process.env.MOCK_PUSH_FAILURE_RATE = '1';
+  await ingestShopifyOrders([
+    {
+      id: 1005,
+      name: '#1005',
+      financial_status: 'paid',
+      line_items: [
+        {
+          sku: 'BALLOON-RED-STD',
+          variant_id: 111111111,
+          quantity: 3,
+          price: '9.90',
+          title: 'Red Balloon Standard'
+        }
+      ]
+    }
+  ]);
+
+  const showJobs = () =>
+    console.table(
+      db
+        .prepare(
+          'SELECT id, internal_sku, platform, target_quantity, status, attempts, last_error FROM push_jobs ORDER BY id'
+        )
+        .all()
+    );
+  console.log('The sale itself succeeded; the failed write-backs wait in the outbox as jobs:');
+  showJobs();
+
+  console.log('Fast-forwarding through the exponential backoff windows (still failing)...');
+  for (let round = 0; round < 5; round++) {
+    // Inject a far-future "now" so the demo does not sleep through real backoff.
+    await processDuePushJobs({ now: Date.now() + (round + 1) * 60 * 60 * 1000 });
+  }
+  console.log('After exhausting max attempts, the jobs are dead-lettered for a human:');
+  showJobs();
+
+  console.log('The platform recovers; an operator requeues the dead-letter jobs...');
+  process.env.MOCK_PUSH_FAILURE_RATE = '0';
+  for (const job of listDeadLetterJobs()) {
+    requeueDeadLetterJob(job.id);
+  }
+  await processDuePushJobs();
+  console.log('The queued (latest) values are delivered exactly once per platform:');
+  showJobs();
+
+  section('9. Reconciliation: replaying the ledger catches silent drift');
+  const clean = reconcileInventory();
+  console.log(
+    `Clean check: ${clean.checkedSkus} SKUs replayed from the ledger, consistent = ${clean.consistent}`
+  );
+
+  console.log('\nSomeone edits stock directly in the database, bypassing the ledger...');
+  db.prepare(
+    "UPDATE inventory_items SET available_units = 999 WHERE internal_sku = 'BALLOON-RED-STD'"
+  ).run();
+  const dirty = reconcileInventory();
+  console.table(dirty.mismatches);
+  console.log('Reconciliation pinpoints the drifted SKU and the exact delta.');
+
+  // Undo the tampering so the demo database ends in a consistent state.
+  const lastGood = dirty.mismatches[0].expected_units;
+  db.prepare(
+    "UPDATE inventory_items SET available_units = ? WHERE internal_sku = 'BALLOON-RED-STD'"
+  ).run(lastGood);
 
   console.log(
     '\nDemo complete. All of the above used local mock data; no real platform API was called.'

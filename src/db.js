@@ -13,6 +13,10 @@ const db = new Database(path.resolve(dbPath));
 // WAL mode behaves better for a web service (more stable reads/writes).
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+// When several processes share this database (e.g. the concurrency test, or a
+// server plus a cron worker), a writer briefly holds the write lock. Instead of
+// failing immediately with SQLITE_BUSY, wait up to 5s for the lock.
+db.pragma('busy_timeout = 5000');
 
 // Create the database tables.
 function initDb() {
@@ -149,6 +153,48 @@ function initDb() {
       message TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- Transactional outbox for platform write-backs. A sale enqueues a push job
+    -- in the same transaction that decrements stock, so "stock changed" and
+    -- "write-back is owed" can never diverge. A dispatcher then delivers jobs
+    -- with retries; sync_push_logs above stays as the per-attempt log.
+    CREATE TABLE IF NOT EXISTS push_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      internal_sku TEXT NOT NULL,
+      platform TEXT NOT NULL CHECK(platform IN ('shopify', 'etsy')),
+
+      -- absolute quantity to set on the platform; coalescing keeps only the
+      -- latest value per (sku, platform) while a job is still pending
+      target_quantity INTEGER NOT NULL,
+
+      -- pending -> succeeded / skipped, or dead_letter after max_attempts
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending', 'succeeded', 'skipped', 'dead_letter')),
+
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 5,
+
+      -- epoch milliseconds; exponential backoff pushes this into the future
+      next_attempt_at INTEGER NOT NULL,
+
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_push_jobs_due
+      ON push_jobs(status, next_attempt_at);
+
+    -- One row per reconciliation run: the ledger is replayed per SKU and
+    -- compared against the live inventory table.
+    CREATE TABLE IF NOT EXISTS reconciliation_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      checked_skus INTEGER NOT NULL,
+      mismatch_count INTEGER NOT NULL,
+      chain_violation_count INTEGER NOT NULL,
+      details TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -277,6 +323,86 @@ const statements = {
     FROM inventory_items ii
     LEFT JOIN sku_mappings sm ON ii.internal_sku = sm.internal_sku
     ORDER BY ii.internal_sku ASC
+  `),
+
+  // ----- push job queue (outbox) -----
+
+  findPendingPushJob: db.prepare(`
+    SELECT * FROM push_jobs
+    WHERE internal_sku = ? AND platform = ? AND status = 'pending'
+    LIMIT 1
+  `),
+
+  insertPushJob: db.prepare(`
+    INSERT INTO push_jobs (internal_sku, platform, target_quantity, max_attempts, next_attempt_at)
+    VALUES (?, ?, ?, ?, ?)
+  `),
+
+  coalescePendingPushJob: db.prepare(`
+    UPDATE push_jobs
+    SET target_quantity = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `),
+
+  listDuePushJobs: db.prepare(`
+    SELECT * FROM push_jobs
+    WHERE status = 'pending' AND next_attempt_at <= ?
+    ORDER BY next_attempt_at ASC
+    LIMIT ?
+  `),
+
+  getPushJobById: db.prepare(`
+    SELECT * FROM push_jobs WHERE id = ?
+  `),
+
+  markPushJobSucceeded: db.prepare(`
+    UPDATE push_jobs
+    SET status = 'succeeded', attempts = ?, last_error = NULL, updated_at = datetime('now')
+    WHERE id = ?
+  `),
+
+  markPushJobSkipped: db.prepare(`
+    UPDATE push_jobs
+    SET status = 'skipped', attempts = ?, last_error = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `),
+
+  schedulePushJobRetry: db.prepare(`
+    UPDATE push_jobs
+    SET attempts = ?, next_attempt_at = ?, last_error = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `),
+
+  markPushJobDeadLetter: db.prepare(`
+    UPDATE push_jobs
+    SET status = 'dead_letter', attempts = ?, last_error = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `),
+
+  listDeadLetterPushJobs: db.prepare(`
+    SELECT * FROM push_jobs WHERE status = 'dead_letter' ORDER BY updated_at DESC
+  `),
+
+  requeuePushJob: db.prepare(`
+    UPDATE push_jobs
+    SET status = 'pending', attempts = 0, next_attempt_at = ?, last_error = NULL,
+        updated_at = datetime('now')
+    WHERE id = ?
+  `),
+
+  // ----- reconciliation -----
+
+  listLedgerBySku: db.prepare(`
+    SELECT * FROM inventory_ledger WHERE internal_sku = ? ORDER BY id ASC
+  `),
+
+  insertReconciliationRun: db.prepare(`
+    INSERT INTO reconciliation_runs (checked_skus, mismatch_count, chain_violation_count, details)
+    VALUES (?, ?, ?, ?)
+  `),
+
+  listReconciliationRuns: db.prepare(`
+    SELECT * FROM reconciliation_runs ORDER BY id DESC LIMIT 20
   `)
 };
 

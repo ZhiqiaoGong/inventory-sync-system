@@ -22,6 +22,19 @@ const ETSY_API_BASE = process.env.ETSY_API_BASE || 'https://openapi.etsy.com/v3/
 const ETSY_ACCESS_TOKEN = process.env.ETSY_ACCESS_TOKEN;
 const ETSY_SHOP_ID = process.env.ETSY_SHOP_ID;
 
+// In mock mode, MOCK_PUSH_FAILURE_RATE (0..1) makes write-backs fail with a
+// simulated transient error at that probability. Read at call time (not load
+// time) so tests and the demo can flip it between calls to exercise the
+// retry / dead-letter path.
+function maybeInjectMockPushFailure() {
+  const failureRate = Number(process.env.MOCK_PUSH_FAILURE_RATE || 0);
+  if (failureRate > 0 && Math.random() < failureRate) {
+    const error = new Error('mock transient failure: HTTP 503 (simulated platform outage)');
+    error.status = 503;
+    throw error;
+  }
+}
+
 async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
   const text = await response.text();
@@ -74,6 +87,7 @@ async function setShopifyInventoryAbsolute({ inventoryItemId, locationId, availa
   if (PLATFORM_MODE === 'mock') {
     // In mock mode we do not make a real request; return a success-like result
     // and let the business layer record the sync log as usual.
+    maybeInjectMockPushFailure();
     return {
       mock: true,
       inventory_item_id: Number(inventoryItemId),
@@ -127,6 +141,7 @@ async function fetchEtsyReceipts({ limit = 50 } = {}) {
 async function updateEtsyListingInventory({ listingId, productsPayload }) {
   if (PLATFORM_MODE === 'mock') {
     // In mock mode we do not make a real request; return a success-like result.
+    maybeInjectMockPushFailure();
     return { mock: true, listing_id: Number(listingId), products: productsPayload };
   }
 
