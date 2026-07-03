@@ -110,7 +110,15 @@ highlighting, the write-back pipeline with per-job attempt counts and one-click 
 requeue, the append-only change ledger, and a reconciliation runner. In mock mode a
 **Simulate platform outage** switch makes every write-back fail with a synthetic 503, so you can
 watch a sale's push retry, dead-letter, and — after switching the outage off and requeueing —
-deliver the latest coalesced value.
+deliver the latest coalesced value. **Reset demo** wipes everything back to the sample inventory.
+
+### Hosting the demo
+
+The repo ships a [render.yaml](render.yaml) blueprint: on [Render](https://render.com), choose
+**New → Blueprint**, point it at this repository, and the mock-mode demo deploys on the free plan
+with no further configuration. The demo needs no credentials, seeds itself with the sample
+inventory on boot (`SEED_SAMPLE_ON_START`), and visitors can always return it to a clean state
+with the dashboard's Reset button.
 
 ## Benchmarks
 

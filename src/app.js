@@ -1,7 +1,9 @@
 require('dotenv').config();
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const { initDb } = require('./db');
+const { parseSimpleCsv } = require('./csv');
 const { fetchShopifyPaidOrders, fetchEtsyReceipts } = require('./platforms');
 const {
   ingestShopifyOrders,
@@ -10,6 +12,7 @@ const {
   getLowStockItems,
   getRecentLedger,
   getRecentPushJobs,
+  resetDemoData,
   processDuePushJobs,
   listDeadLetterJobs,
   requeueDeadLetterJob,
@@ -176,6 +179,18 @@ app.get('/ledger', (req, res) => {
 app.get('/push-jobs', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   res.json({ ok: true, jobs: getRecentPushJobs(limit) });
+});
+
+// Mock-mode reset: wipe everything and re-import the sample inventory. Lets
+// the hosted demo return to a known-good state after visitors play with it.
+app.post('/demo/reset', (_req, res) => {
+  if ((process.env.PLATFORM_MODE || 'mock').toLowerCase() !== 'mock') {
+    return res.status(403).json({ ok: false, message: 'reset is only available in mock mode' });
+  }
+  const csvText = fs.readFileSync(path.join(__dirname, '..', 'sample_inventory.csv'), 'utf8');
+  resetDemoData(parseSimpleCsv(csvText));
+  process.env.MOCK_PUSH_FAILURE_RATE = '0';
+  res.json({ ok: true, items: getInventorySnapshot().length });
 });
 
 // Mock-mode chaos switch: set the probability that a mock write-back fails,

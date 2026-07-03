@@ -258,6 +258,20 @@ $('#btn-reconcile').addEventListener('click', (e) =>
   })
 );
 
+$('#btn-reset').addEventListener('click', (e) =>
+  withButton(e.target, async () => {
+    const data = await api('/demo/reset', { method: 'POST' });
+    // The reset also clears the chaos flag server-side; mirror it in the UI.
+    $('#outage-toggle').checked = false;
+    document.body.classList.remove('outage');
+    $('#reconcile-report').className = 'reconcile-report';
+    $('#reconcile-report').replaceChildren(
+      el('p', 'muted', 'Run a reconciliation to replay the ledger against live stock.')
+    );
+    toast(`Demo reset: ${data.items} SKUs re-imported`);
+  })
+);
+
 $('#outage-toggle').addEventListener('change', async (e) => {
   const on = e.target.checked;
   try {

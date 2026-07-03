@@ -1,0 +1,30 @@
+# Render blueprint: deploys the mock-mode demo with one click.
+# https://render.com/docs/blueprint-spec
+#
+# Notes for the free plan:
+# - The disk is ephemeral: the SQLite file resets on every deploy/restart.
+#   That is fine (even desirable) for a demo — SEED_SAMPLE_ON_START re-imports
+#   the sample inventory whenever the database comes up empty.
+# - The service sleeps after ~15 min idle; the first visit afterwards takes a
+#   few seconds to wake.
+services:
+  - type: web
+    name: inventory-sync-demo
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: node src/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: PLATFORM_MODE
+        value: mock
+      - key: ENABLE_PLATFORM_PUSH
+        value: 'true'
+      - key: SEED_SAMPLE_ON_START
+        value: 'true'
+      - key: SHOPIFY_WEBHOOK_SECRET
+        value: mock-webhook-secret
+      - key: DB_PATH
+        value: /tmp/inventory-demo.db

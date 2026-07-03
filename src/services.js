@@ -714,6 +714,27 @@ function getRecentPushJobs(limit = 50) {
   return statements.listRecentPushJobs.all(limit);
 }
 
+// Wipe every table and re-import the given inventory rows. Exists for the
+// hosted mock-mode demo, where visitors share one database and need a way
+// back to a known-good state.
+function resetDemoData(rows) {
+  db.transaction(() => {
+    for (const table of [
+      'order_event_items',
+      'order_events',
+      'inventory_ledger',
+      'push_jobs',
+      'sync_push_logs',
+      'reconciliation_runs',
+      'sku_mappings',
+      'inventory_items'
+    ]) {
+      db.prepare(`DELETE FROM ${table}`).run();
+    }
+  }).immediate();
+  importInventoryRows(rows);
+}
+
 module.exports = {
   importInventoryRows,
   ingestShopifyOrders,
@@ -722,6 +743,7 @@ module.exports = {
   getLowStockItems,
   getRecentLedger,
   getRecentPushJobs,
+  resetDemoData,
   processDuePushJobs,
   listDeadLetterJobs,
   requeueDeadLetterJob,
