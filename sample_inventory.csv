@@ -2,3 +2,4 @@ internal_sku,product_name,tier,sync_enabled,monitoring_enabled,available_units,l
 BALLOON-RED-STD,Red Balloon Standard,tier1,1,1,120,20,50,Standard SKU - can be auto-synced,BALLOON-RED-STD,111111111,222222222,333333333,BALLOON-RED-STD,444444444,555555555
 BALLOON-PINK-PACK,Pink Balloon Pack,tier2,0,1,60,15,100,Managed by pack - tracked only for now,BALLOON-PINK-PACK,,,,BALLOON-PINK-PACK,,
 CUSTOM-BUNDLE-01,Custom Bundle 01,tier3,0,1,,10,,Bundle product - kept as manual workflow,CUSTOM-BUNDLE-01,,,,CUSTOM-BUNDLE-01,,
+BALLOON-BLUE-STD,Blue Balloon Standard,tier1,1,1,12,10,50,Standard SKU near its low-stock threshold,BALLOON-BLUE-STD,666666666,777777777,333333333,BALLOON-BLUE-STD,888888888,999999999

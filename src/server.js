@@ -60,27 +60,30 @@ app.post('/sync/etsy', async (_req, res) => {
   }
 });
 
-// Sync both platforms in one call.
-app.post('/sync/all', async (_req, res) => {
+// Run one platform's fetch + ingest, isolating any failure so that one platform
+// being unconfigured or down does not take the other one down with it.
+async function runPlatformSync(fetchFn, ingestFn) {
   try {
-    const [shopifyOrders, etsyReceipts] = await Promise.all([
-      fetchShopifyPaidOrders({ limit: 50 }),
-      fetchEtsyReceipts({ limit: 50 })
-    ]);
-
-    const shopifyResult = await ingestShopifyOrders(shopifyOrders);
-    const etsyResult = await ingestEtsyReceipts(etsyReceipts);
-
-    res.json({
-      ok: true,
-      result: {
-        shopify: shopifyResult,
-        etsy: etsyResult
-      }
-    });
+    const data = await fetchFn({ limit: 50 });
+    const result = await ingestFn(data);
+    return { ok: true, result };
   } catch (error) {
-    res.status(500).json({ ok: false, message: error.message });
+    return { ok: false, message: error.message };
   }
+}
+
+// Sync both platforms in one call. Each platform is independent: if Etsy is not
+// configured (a common case early on), Shopify still syncs successfully.
+app.post('/sync/all', async (_req, res) => {
+  const [shopify, etsy] = await Promise.all([
+    runPlatformSync(fetchShopifyPaidOrders, ingestShopifyOrders),
+    runPlatformSync(fetchEtsyReceipts, ingestEtsyReceipts)
+  ]);
+
+  res.json({
+    ok: shopify.ok || etsy.ok,
+    result: { shopify, etsy }
+  });
 });
 
 app.listen(PORT, () => {

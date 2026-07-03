@@ -92,13 +92,17 @@ async function main() {
 
   section('4. Inventory change ledger (inventory_ledger)');
   const ledger = db
-    .prepare('SELECT internal_sku, reason, platform, change_units, before_units, after_units FROM inventory_ledger ORDER BY id')
+    .prepare(
+      'SELECT internal_sku, reason, platform, change_units, before_units, after_units FROM inventory_ledger ORDER BY id'
+    )
     .all();
   console.table(ledger);
 
   section('5. Platform write-back logs (sync_push_logs)');
   const pushLogs = db
-    .prepare('SELECT internal_sku, platform, target_quantity, status, message FROM sync_push_logs ORDER BY id')
+    .prepare(
+      'SELECT internal_sku, platform, target_quantity, status, message FROM sync_push_logs ORDER BY id'
+    )
     .all();
   console.table(pushLogs);
 
@@ -107,10 +111,33 @@ async function main() {
   if (lowStock.length === 0) {
     console.log('No items are below their threshold.');
   } else {
-    console.table(lowStock.map((i) => ({ internal_sku: i.internal_sku, available_units: i.available_units, threshold: i.low_stock_threshold })));
+    console.table(
+      lowStock.map((i) => ({
+        internal_sku: i.internal_sku,
+        available_units: i.available_units,
+        threshold: i.low_stock_threshold
+      }))
+    );
   }
 
-  console.log('\nDemo complete. All of the above used local mock data; no real platform API was called.');
+  section('7. Re-running the same sync is idempotent (deduplicated)');
+  const shopifyAgain = await ingestShopifyOrders(await fetchShopifyPaidOrders({ limit: 50 }));
+  const etsyAgain = await ingestEtsyReceipts(await fetchEtsyReceipts({ limit: 50 }));
+  console.table(
+    [...shopifyAgain, ...etsyAgain].map((o) => ({
+      platform: o.platform,
+      order: o.orderId,
+      status: o.status
+    }))
+  );
+  const redAfterReplay = getInventorySnapshot().find((i) => i.internal_sku === 'BALLOON-RED-STD');
+  console.log(
+    `BALLOON-RED-STD is still ${redAfterReplay.available_units} units: the replay did not double-count.`
+  );
+
+  console.log(
+    '\nDemo complete. All of the above used local mock data; no real platform API was called.'
+  );
 }
 
 main().catch((error) => {

@@ -1,8 +1,5 @@
 const { db, statements } = require('./db');
-const {
-  setShopifyInventoryAbsolute,
-  updateEtsyListingInventory
-} = require('./platforms');
+const { setShopifyInventoryAbsolute, updateEtsyListingInventory } = require('./platforms');
 require('dotenv').config();
 
 const ENABLE_PLATFORM_PUSH = String(process.env.ENABLE_PLATFORM_PUSH).toLowerCase() === 'true';
@@ -17,7 +14,9 @@ const SHOPIFY_LOCATION_ID = process.env.SHOPIFY_LOCATION_ID || null;
 // ======================================================
 
 function normalizeTier(rawTier) {
-  const value = String(rawTier || '').trim().toLowerCase();
+  const value = String(rawTier || '')
+    .trim()
+    .toLowerCase();
   if (['tier1', 'tier2', 'tier3'].includes(value)) return value;
   return 'tier3';
 }
@@ -39,18 +38,20 @@ function importInventoryRows(rows) {
   const tx = db.transaction((items) => {
     for (const row of items) {
       const tier = normalizeTier(row.tier);
-      const syncEnabled = row.sync_enabled !== undefined
-        ? normalizeBoolean(row.sync_enabled)
-        : (tier === 'tier1' ? 1 : 0);
+      const syncEnabled =
+        row.sync_enabled !== undefined
+          ? normalizeBoolean(row.sync_enabled)
+          : tier === 'tier1'
+            ? 1
+            : 0;
 
       statements.upsertInventoryItem.run({
         internal_sku: row.internal_sku,
         product_name: row.product_name || null,
         tier,
         sync_enabled: syncEnabled,
-        monitoring_enabled: row.monitoring_enabled !== undefined
-          ? normalizeBoolean(row.monitoring_enabled, true)
-          : 1,
+        monitoring_enabled:
+          row.monitoring_enabled !== undefined ? normalizeBoolean(row.monitoring_enabled, true) : 1,
         available_units: nullableInt(row.available_units),
         low_stock_threshold: nullableInt(row.low_stock_threshold) ?? DEFAULT_LOW_STOCK_THRESHOLD,
         units_per_pack: nullableInt(row.units_per_pack),
@@ -93,12 +94,22 @@ function resolveInternalSkuForEtsyLineItem(item) {
   // Be tolerant of different Etsy field names.
   const candidateSku = (item.sku || item.skus || '').toString().trim();
   if (candidateSku) {
-    return statements.findInventoryItemByPlatformSku.get('__NO_SHOPIFY_SKU__', candidateSku) || null;
+    return (
+      statements.findInventoryItemByPlatformSku.get('__NO_SHOPIFY_SKU__', candidateSku) || null
+    );
   }
   return null;
 }
 
-function saveOrderEventWithItems({ platform, externalEventId, externalOrderId, orderName, orderStatus, rawPayload, items }) {
+function saveOrderEventWithItems({
+  platform,
+  externalEventId,
+  externalOrderId,
+  orderName,
+  orderStatus,
+  rawPayload,
+  items
+}) {
   // Idempotency: if this event was already processed, do not write it again.
   const existed = statements.findOrderEventByPlatformAndEventId.get(platform, externalEventId);
   if (existed) {
@@ -138,14 +149,38 @@ function saveOrderEventWithItems({ platform, externalEventId, externalOrderId, o
 async function pushInventoryToPlatforms(internalSku, targetQuantity) {
   const mapping = statements.findSkuMappingByInternalSku.get(internalSku);
   if (!mapping) {
-    statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'skipped', 'no SKU mapping found');
-    statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'skipped', 'no SKU mapping found');
+    statements.insertSyncPushLog.run(
+      internalSku,
+      'shopify',
+      targetQuantity,
+      'skipped',
+      'no SKU mapping found'
+    );
+    statements.insertSyncPushLog.run(
+      internalSku,
+      'etsy',
+      targetQuantity,
+      'skipped',
+      'no SKU mapping found'
+    );
     return;
   }
 
   if (!ENABLE_PLATFORM_PUSH) {
-    statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'skipped', 'ENABLE_PLATFORM_PUSH=false');
-    statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'skipped', 'ENABLE_PLATFORM_PUSH=false');
+    statements.insertSyncPushLog.run(
+      internalSku,
+      'shopify',
+      targetQuantity,
+      'skipped',
+      'ENABLE_PLATFORM_PUSH=false'
+    );
+    statements.insertSyncPushLog.run(
+      internalSku,
+      'etsy',
+      targetQuantity,
+      'skipped',
+      'ENABLE_PLATFORM_PUSH=false'
+    );
     return;
   }
 
@@ -159,12 +194,30 @@ async function pushInventoryToPlatforms(internalSku, targetQuantity) {
         locationId: mapping.shopify_location_id || SHOPIFY_LOCATION_ID,
         available: targetQuantity
       });
-      statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'success', 'Shopify inventory updated');
+      statements.insertSyncPushLog.run(
+        internalSku,
+        'shopify',
+        targetQuantity,
+        'success',
+        'Shopify inventory updated'
+      );
     } else {
-      statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'skipped', 'missing Shopify inventory mapping');
+      statements.insertSyncPushLog.run(
+        internalSku,
+        'shopify',
+        targetQuantity,
+        'skipped',
+        'missing Shopify inventory mapping'
+      );
     }
   } catch (error) {
-    statements.insertSyncPushLog.run(internalSku, 'shopify', targetQuantity, 'failed', error.message);
+    statements.insertSyncPushLog.run(
+      internalSku,
+      'shopify',
+      targetQuantity,
+      'failed',
+      error.message
+    );
   }
 
   // ----------------------
@@ -197,9 +250,21 @@ async function pushInventoryToPlatforms(internalSku, targetQuantity) {
         listingId: mapping.etsy_listing_id,
         productsPayload
       });
-      statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'success', 'Etsy inventory updated');
+      statements.insertSyncPushLog.run(
+        internalSku,
+        'etsy',
+        targetQuantity,
+        'success',
+        'Etsy inventory updated'
+      );
     } else {
-      statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'skipped', 'missing Etsy mapping / offering id');
+      statements.insertSyncPushLog.run(
+        internalSku,
+        'etsy',
+        targetQuantity,
+        'skipped',
+        'missing Etsy mapping / offering id'
+      );
     }
   } catch (error) {
     statements.insertSyncPushLog.run(internalSku, 'etsy', targetQuantity, 'failed', error.message);
@@ -222,33 +287,46 @@ async function applySaleToInventory({ platform, externalOrderId, internalSku, qu
     };
   }
 
-  const beforeUnits = Number(item.available_units);
-  const afterUnits = beforeUnits - Number(quantity);
+  // Decrement stock atomically inside a single transaction: re-read the current
+  // value, clamp at zero to avoid negative stock (oversell), and write the
+  // ledger. better-sqlite3 transactions are synchronous, so read + write here
+  // cannot be interleaved by another sale.
+  const requested = Number(quantity);
+  const { beforeUnits, afterUnits, oversold } = db.transaction(() => {
+    const current = statements.findInventoryItemByInternalSku.get(internalSku);
+    const before = Number(current.available_units);
+    const after = Math.max(0, before - requested);
+    const isOversell = before - requested < 0;
+    const ledgerNotes = isOversell
+      ? `${notes ? notes + ' ' : ''}[oversell: requested ${requested}, only ${before} available]`
+      : notes || null;
 
-  const tx = db.transaction(() => {
-    statements.updateInventoryUnits.run(afterUnits, internalSku);
+    statements.updateInventoryUnits.run(after, internalSku);
     statements.insertLedger.run(
       internalSku,
       'sale',
       platform,
       externalOrderId,
-      -Number(quantity),
-      beforeUnits,
-      afterUnits,
-      notes || null
+      after - before, // actual change applied, so before + change === after always holds
+      before,
+      after,
+      ledgerNotes
     );
-  });
 
-  tx();
+    return { beforeUnits: before, afterUnits: after, oversold: isOversell };
+  })();
 
   // Only tier1 with sync_enabled=1 writes back to the platforms.
   if (item.tier === 'tier1' && Number(item.sync_enabled) === 1) {
     await pushInventoryToPlatforms(internalSku, afterUnits);
     return {
       status: 'synced',
-      message: 'tier1 SKU: stock decremented and write-back attempted',
+      message: oversold
+        ? 'tier1 SKU: oversold, stock clamped to 0 and write-back attempted'
+        : 'tier1 SKU: stock decremented and write-back attempted',
       beforeUnits,
-      afterUnits
+      afterUnits,
+      oversold
     };
   }
 
@@ -258,7 +336,8 @@ async function applySaleToInventory({ platform, externalOrderId, internalSku, qu
       status: 'tracked_only',
       message: 'tier2 SKU: internal stock/trend recorded, no write-back',
       beforeUnits,
-      afterUnits
+      afterUnits,
+      oversold
     };
   }
 
@@ -267,7 +346,8 @@ async function applySaleToInventory({ platform, externalOrderId, internalSku, qu
     status: 'manual',
     message: 'tier3 SKU: manual workflow kept, no write-back',
     beforeUnits,
-    afterUnits
+    afterUnits,
+    oversold
   };
 }
 
@@ -354,7 +434,9 @@ async function ingestEtsyReceipts(receipts) {
 
     const transactions = Array.isArray(receipt.transactions)
       ? receipt.transactions
-      : (Array.isArray(receipt.Transactions) ? receipt.Transactions : []);
+      : Array.isArray(receipt.Transactions)
+        ? receipt.Transactions
+        : [];
 
     const normalizedItems = transactions.map((item) => {
       const resolved = resolveInternalSkuForEtsyLineItem(item);

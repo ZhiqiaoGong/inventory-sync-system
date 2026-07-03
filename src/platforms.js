@@ -74,7 +74,12 @@ async function setShopifyInventoryAbsolute({ inventoryItemId, locationId, availa
   if (PLATFORM_MODE === 'mock') {
     // In mock mode we do not make a real request; return a success-like result
     // and let the business layer record the sync log as usual.
-    return { mock: true, inventory_item_id: Number(inventoryItemId), location_id: Number(locationId), available: Number(available) };
+    return {
+      mock: true,
+      inventory_item_id: Number(inventoryItemId),
+      location_id: Number(locationId),
+      available: Number(available)
+    };
   }
 
   // Note: Shopify has both adjust (delta) and set (absolute) approaches.
@@ -98,7 +103,7 @@ async function setShopifyInventoryAbsolute({ inventoryItemId, locationId, availa
 function getEtsyHeaders() {
   return {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${ETSY_ACCESS_TOKEN}`
+    Authorization: `Bearer ${ETSY_ACCESS_TOKEN}`
   };
 }
 

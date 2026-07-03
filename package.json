@@ -4,17 +4,40 @@
   "private": true,
   "description": "Tiered cross-platform inventory sync system for Shopify + Etsy + internal inventory table",
   "main": "src/server.js",
+  "license": "MIT",
+  "author": "Zhiqiao Gong",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ZhiqiaoGong/inventory-sync-system.git"
+  },
+  "keywords": [
+    "inventory",
+    "shopify",
+    "etsy",
+    "sync",
+    "sqlite",
+    "express"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node src/server.js",
     "init-db": "node scripts/initDb.js",
     "import-csv": "node scripts/importInventoryCsv.js",
     "sync-orders": "node scripts/syncOrdersOnce.js",
-    "demo": "node scripts/demo.js"
+    "demo": "node scripts/demo.js",
+    "test": "node --test test/*.test.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "dotenv": "^16.4.7",
     "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
   }
 }

@@ -19,7 +19,13 @@ const mockShopifyOrders = [
     financial_status: 'paid',
     line_items: [
       // tier1: matched by variant_id, decrement + write back
-      { sku: 'BALLOON-RED-STD', variant_id: 111111111, quantity: 5, price: '9.90', title: 'Red Balloon Standard' }
+      {
+        sku: 'BALLOON-RED-STD',
+        variant_id: 111111111,
+        quantity: 5,
+        price: '9.90',
+        title: 'Red Balloon Standard'
+      }
     ]
   },
   {
@@ -28,7 +34,13 @@ const mockShopifyOrders = [
     financial_status: 'paid',
     line_items: [
       // tier2: matched by sku, tracked only, no write back
-      { sku: 'BALLOON-PINK-PACK', variant_id: null, quantity: 4, price: '12.00', title: 'Pink Balloon Pack' }
+      {
+        sku: 'BALLOON-PINK-PACK',
+        variant_id: null,
+        quantity: 4,
+        price: '12.00',
+        title: 'Pink Balloon Pack'
+      }
     ]
   },
   {
@@ -38,6 +50,21 @@ const mockShopifyOrders = [
     line_items: [
       // unmatched: no mapping for this SKU in the warehouse
       { sku: 'MYSTERY-SKU', variant_id: null, quantity: 1, price: '5.00', title: 'Unknown item' }
+    ]
+  },
+  {
+    id: 1004,
+    name: '#1004',
+    financial_status: 'paid',
+    line_items: [
+      // tier1: sale pushes stock 12 -> 7, below its threshold of 10 (triggers low-stock)
+      {
+        sku: 'BALLOON-BLUE-STD',
+        variant_id: 666666666,
+        quantity: 5,
+        price: '7.50',
+        title: 'Blue Balloon Standard'
+      }
     ]
   }
 ];
