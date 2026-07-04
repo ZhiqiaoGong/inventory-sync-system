@@ -10,7 +10,11 @@ mock mode, no sign-in. Try **Sync now**, flip on **Simulate platform outage** to
 pipeline, and **Reset demo** to start fresh. (Free-tier hosting: the first visit after idle takes
 ~1 minute to wake.)
 
-![Dashboard](docs/dashboard.png)
+![Demo: a signed webhook sale arrives during a platform outage; the write-back retries with backoff, dead-letters after max attempts, and delivers after an operator requeues it](docs/demo.gif)
+
+_Above: a signed-webhook sale arrives during a simulated platform outage — the write-back retries
+with exponential backoff, dead-letters after 5 attempts, and delivers once the platform recovers
+and an operator requeues it._
 
 ```mermaid
 flowchart LR
@@ -116,6 +120,8 @@ requeue, the append-only change ledger, and a reconciliation runner. In mock mod
 **Simulate platform outage** switch makes every write-back fail with a synthetic 503, so you can
 watch a sale's push retry, dead-letter, and — after switching the outage off and requeueing —
 deliver the latest coalesced value. **Reset demo** wipes everything back to the sample inventory.
+
+![Dashboard](docs/dashboard.png)
 
 ### Hosting the demo
 

@@ -1,0 +1,22 @@
+# Keep the free-tier Render demo warm so visitors don't hit the ~1 minute
+# cold start. Render free plans include 750 instance hours/month; one
+# always-on service uses ~730, so this fits.
+#
+# Note: GitHub disables scheduled workflows after 60 days without repo
+# activity — any push re-enables it, or re-enable from the Actions tab.
+name: Keep demo awake
+
+on:
+  schedule:
+    # Every 10 minutes. GitHub may delay scheduled runs by a few minutes;
+    # that's fine — Render only sleeps after 15 minutes of silence.
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: |
+          curl -sS --max-time 120 --retry 2 https://inventory-sync-demo.onrender.com/health
