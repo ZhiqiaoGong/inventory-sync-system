@@ -5,6 +5,11 @@
 A prototype inventory system that keeps a single, normalized internal stock table in sync across
 multiple sales channels (Shopify and Etsy). Built with Node.js, Express, and SQLite.
 
+**🔗 Live demo: [inventory-sync-demo.onrender.com](https://inventory-sync-demo.onrender.com)** —
+mock mode, no sign-in. Try **Sync now**, flip on **Simulate platform outage** to watch the retry
+pipeline, and **Reset demo** to start fresh. (Free-tier hosting: the first visit after idle takes
+~1 minute to wake.)
+
 ![Dashboard](docs/dashboard.png)
 
 ```mermaid
