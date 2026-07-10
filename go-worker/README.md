@@ -13,8 +13,12 @@ this worker polls the outbox for due jobs and delivers them.
 
 - **Milestone 1 (done):** read-only poller — connects to the SQLite database,
   polls `push_jobs` for jobs whose `next_attempt_at` has passed, and prints them.
-- **Milestone 2 (next):** actually perform the write-backs, with retry, exponential
-  backoff, and dead-lettering — porting the logic from `src/services.js`.
+- **Milestone 2a (done):** delivers the write-backs — for each due job it calls
+  the platform (mocked) and advances the job through the same state machine as
+  the Node dispatcher: success, skipped, retry with exponential backoff, or
+  dead-letter. Ported from `attemptPushJob` in `src/services.js`.
+- **Milestone 2b (next):** process jobs concurrently with a goroutine worker
+  pool, with atomic job claiming so parallel workers never double-deliver.
 - **Milestone 3:** consume events from Kafka instead of polling SQLite.
 - **Milestone 4:** containerize and deploy to AWS.
 
