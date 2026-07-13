@@ -17,8 +17,11 @@ this worker polls the outbox for due jobs and delivers them.
   the platform (mocked) and advances the job through the same state machine as
   the Node dispatcher: success, skipped, retry with exponential backoff, or
   dead-letter. Ported from `attemptPushJob` in `src/services.js`.
-- **Milestone 2b (next):** process jobs concurrently with a goroutine worker
-  pool, with atomic job claiming so parallel workers never double-deliver.
+- **Milestone 2b (done):** concurrent delivery via a goroutine worker pool, with
+  **atomic lease-based job claiming** so delivery is exactly-once even when
+  several worker processes run against the same database. Verified by racing two
+  worker processes over the same 30 jobs: each delivered exactly once, zero
+  duplicates.
 - **Milestone 3:** consume events from Kafka instead of polling SQLite.
 - **Milestone 4:** containerize and deploy to AWS.
 

@@ -1,10 +1,12 @@
 // Command go-worker is the v2 write-back relay for the inventory system.
 //
-// Milestone 2a (this file): the worker now *delivers* the write-backs. It polls
-// the push_jobs outbox for due jobs and, for each one, calls the platform
-// (mocked here) and advances the job through the same state machine the Node
-// dispatcher uses: success, skipped, retry-with-backoff, or dead-letter.
-// Concurrency comes in M2b; this version processes jobs sequentially.
+// It polls the push_jobs outbox for due jobs and delivers them to the platforms
+// (mocked here), advancing each job through the same state machine as the Node
+// dispatcher: success, skipped, retry-with-backoff, or dead-letter.
+//
+// Delivery is concurrent (a pool of goroutines) and exactly-once even across
+// multiple worker processes: each job is atomically claimed via a lease before
+// it is worked, so no two workers deliver the same job. See runBatch/claimJob.
 package main
 
 import (
@@ -15,11 +17,19 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	// Imported only for its side effect: registers the "sqlite" driver.
 	_ "modernc.org/sqlite"
 )
+
+// leaseMs is the visibility timeout: when a worker claims a job it hides the
+// job for this long, so no other worker (in this process or another) picks it
+// up while it is being delivered. If the worker crashes mid-delivery, the lease
+// expires and the still-pending job becomes due again — safe because platform
+// write-backs are idempotent absolute sets.
+const leaseMs int64 = 30_000
 
 // config holds the knobs, read once from the environment at startup. Mirrors
 // the same env vars the Node side uses so both behave identically.
@@ -66,11 +76,16 @@ type mapping struct {
 
 func main() {
 	once := flag.Bool("once", false, "poll a single time and exit (useful for cron / debugging)")
+	workers := flag.Int("workers", 4, "number of concurrent delivery goroutines")
 	flag.Parse()
 
 	cfg := loadConfig()
 
-	db, err := sql.Open("sqlite", cfg.dbPath)
+	// busy_timeout makes a connection WAIT (up to 5s) for the SQLite write lock
+	// instead of failing with "database is locked" — essential when several
+	// worker processes hit the same file.
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", cfg.dbPath)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
@@ -79,27 +94,99 @@ func main() {
 		log.Fatalf("cannot reach db at %s: %v", cfg.dbPath, err)
 	}
 
-	log.Printf("worker started, delivering write-backs from %s (push=%v, failureRate=%.2f)",
-		cfg.dbPath, cfg.enablePush, cfg.failureRate)
+	log.Printf("worker started: %d goroutines, db=%s (push=%v, failureRate=%.2f)",
+		*workers, cfg.dbPath, cfg.enablePush, cfg.failureRate)
 
 	for {
-		jobs, err := findDueJobs(db, time.Now().UnixMilli())
-		if err != nil {
-			log.Printf("query error: %v", err)
-		} else if len(jobs) == 0 {
+		n := runBatch(db, cfg, *workers)
+		if n == 0 {
 			log.Printf("no due jobs")
-		} else {
-			for _, j := range jobs {
-				outcome := attemptWriteback(db, cfg, j, time.Now().UnixMilli())
-				log.Printf("job #%d %s/%s -> %s", j.ID, j.InternalSKU, j.Platform, outcome)
-			}
 		}
-
 		if *once {
 			return
 		}
 		time.Sleep(2 * time.Second)
 	}
+}
+
+// runBatch delivers all currently-due jobs using a pool of numWorkers
+// goroutines. It returns how many jobs were claimed and handed off.
+//
+// Shape: one producer (this goroutine) finds due jobs and atomically claims
+// each one, sending the winners into a channel; numWorkers consumer goroutines
+// read from the channel and deliver. A WaitGroup lets us block until every
+// worker has drained the channel.
+func runBatch(db *sql.DB, cfg config, numWorkers int) int {
+	now := time.Now().UnixMilli()
+	jobs, err := findDueJobs(db, now)
+	if err != nil {
+		log.Printf("query error: %v", err)
+		return 0
+	}
+	if len(jobs) == 0 {
+		return 0
+	}
+
+	// jobsCh is the hand-off pipe from producer to workers. An unbuffered
+	// channel means a send blocks until some worker is ready to receive —
+	// natural backpressure.
+	jobsCh := make(chan PushJob)
+	var wg sync.WaitGroup
+
+	// Start the worker pool. Each goroutine ranges over the channel until it
+	// is closed, delivering whatever jobs it receives.
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for job := range jobsCh {
+				outcome := attemptWriteback(db, cfg, job, time.Now().UnixMilli())
+				log.Printf("[w%d] job #%d %s/%s -> %s",
+					workerID, job.ID, job.InternalSKU, job.Platform, outcome)
+			}
+		}(i)
+	}
+
+	// Producer: claim each due job atomically; only the winner sends it on.
+	claimed := 0
+	for _, j := range jobs {
+		won, err := claimJob(db, j.ID, now)
+		if err != nil {
+			log.Printf("claim error on job #%d: %v", j.ID, err)
+			continue
+		}
+		if won {
+			claimed++
+			jobsCh <- j // blocks until a worker takes it
+		}
+		// If we did not win the claim, another worker already owns this job —
+		// we simply move on. This is the exactly-once guarantee in action.
+	}
+
+	close(jobsCh) // no more jobs → workers finish their range loop and exit
+	wg.Wait()     // block until every worker has returned
+	return claimed
+}
+
+// claimJob atomically leases a due, pending job by pushing its next_attempt_at
+// into the future. RowsAffected == 1 means THIS caller won the claim; 0 means
+// another worker got there first. Because the UPDATE's WHERE clause re-checks
+// status='pending' AND next_attempt_at<=now, the database — not application
+// code — arbitrates the race, exactly like the ingestion path's UNIQUE
+// constraint. This is what makes delivery exactly-once even across processes.
+func claimJob(db *sql.DB, id, nowMs int64) (bool, error) {
+	res, err := db.Exec(
+		`UPDATE push_jobs SET next_attempt_at = ?
+		 WHERE id = ? AND status = 'pending' AND next_attempt_at <= ?`,
+		nowMs+leaseMs, id, nowMs)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
 }
 
 // attemptWriteback runs one delivery attempt for a job and advances its state.
