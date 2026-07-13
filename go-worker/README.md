@@ -39,6 +39,17 @@ WORKER_DB_PATH=/path/to/inventory.db ./worker
 The Node side creates due jobs whenever a tier1 write-back fails, e.g. run a sale
 with `MOCK_PUSH_FAILURE_RATE=1` from the repo root.
 
+## Test
+
+```bash
+go test -race ./...
+```
+
+`TestConcurrentDeliveryIsExactlyOnce` races 6 worker instances over the same 50
+jobs and asserts each is delivered exactly once (zero duplicates); `-race` also
+proves there are no data races. `TestRetryThenDeadLetter` locks the retry →
+dead-letter state machine. Each test builds its own throwaway SQLite database.
+
 ## Notes
 
 - Uses the pure-Go SQLite driver `modernc.org/sqlite` (no CGO), so the binary is
