@@ -22,8 +22,24 @@ this worker polls the outbox for due jobs and delivers them.
   several worker processes run against the same database. Verified by racing two
   worker processes over the same 30 jobs: each delivered exactly once, zero
   duplicates.
-- **Milestone 3:** consume events from Kafka instead of polling SQLite.
+- **Milestone 3a (done):** Kafka is up (Redpanda via `docker-compose.kafka.yml`)
+  and the worker can produce/consume through it — see `kafka.go` and
+  `./worker -mode=kafka-demo`. Learned topics, partitions, offsets, consumer
+  groups, key-based partitioning.
+- **Milestone 3b (next):** wire Kafka into the real flow — an outbox **relay**
+  claims and publishes stock-change events, and a Kafka **consumer** delivers
+  them (reusing the M2 state machine). The outbox stays the retry engine; Kafka
+  is the transport and enables fan-out to independent consumer groups.
 - **Milestone 4:** containerize and deploy to AWS.
+
+## Kafka (local)
+
+```bash
+docker compose -f ../docker-compose.kafka.yml up -d   # start Redpanda on :9092
+docker exec inventory-redpanda rpk topic create go-demo -p 3
+./worker -mode=kafka-demo                             # produce + consume hello-world
+docker compose -f ../docker-compose.kafka.yml down    # stop
+```
 
 ## Run
 

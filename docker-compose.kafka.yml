@@ -1,0 +1,27 @@
+# Local Kafka for the v2 write-back pipeline, via Redpanda — a Kafka-API-
+# compatible broker that runs as a single container with no ZooKeeper, ideal
+# for local development. Any Kafka client (including our Go segmentio/kafka-go
+# code) talks to it on localhost:9092.
+#
+#   docker compose -f docker-compose.kafka.yml up -d
+#   docker compose -f docker-compose.kafka.yml down
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    container_name: inventory-redpanda
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container # tuned for a single-node local dev broker
+      - --smp=1 # use 1 CPU core
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      # advertise localhost so clients on the host machine can reach it
+      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
+    ports:
+      - "9092:9092" # Kafka API
+      - "9644:9644" # Redpanda admin API
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

@@ -75,9 +75,16 @@ type mapping struct {
 }
 
 func main() {
+	mode := flag.String("mode", "poll", "poll | kafka-demo (relay/consumer added in M3b)")
 	once := flag.Bool("once", false, "poll a single time and exit (useful for cron / debugging)")
 	workers := flag.Int("workers", 4, "number of concurrent delivery goroutines")
 	flag.Parse()
+
+	// kafka-demo is a standalone hello-world that needs no database.
+	if *mode == "kafka-demo" {
+		runKafkaDemo(getenv("KAFKA_BROKER", "localhost:9092"), getenv("KAFKA_TOPIC", "go-demo"))
+		return
+	}
 
 	cfg := loadConfig()
 
