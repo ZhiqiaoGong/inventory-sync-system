@@ -75,45 +75,82 @@ type mapping struct {
 }
 
 func main() {
-	mode := flag.String("mode", "poll", "poll | kafka-demo (relay/consumer added in M3b)")
-	once := flag.Bool("once", false, "poll a single time and exit (useful for cron / debugging)")
-	workers := flag.Int("workers", 4, "number of concurrent delivery goroutines")
+	mode := flag.String("mode", "poll", "poll | relay | consumer | audit | kafka-demo")
+	once := flag.Bool("once", false, "poll/relay a single time and exit (cron / debugging)")
+	workers := flag.Int("workers", 4, "number of concurrent delivery goroutines (poll mode)")
 	flag.Parse()
 
-	// kafka-demo is a standalone hello-world that needs no database.
-	if *mode == "kafka-demo" {
-		runKafkaDemo(getenv("KAFKA_BROKER", "localhost:9092"), getenv("KAFKA_TOPIC", "go-demo"))
+	broker := getenv("KAFKA_BROKER", "localhost:9092")
+	topic := getenv("KAFKA_TOPIC", "stock-changes")
+
+	// Modes that need no database.
+	switch *mode {
+	case "kafka-demo":
+		runKafkaDemo(broker, getenv("KAFKA_TOPIC", "go-demo"))
+		return
+	case "audit":
+		// A second, independent consumer group. It sees every event the
+		// writeback consumer sees, on its own offsets — this is Kafka fan-out.
+		runConsumer(broker, topic, "audit", auditHandler)
 		return
 	}
 
 	cfg := loadConfig()
+	db := openDB(cfg.dbPath)
+	defer db.Close()
 
-	// busy_timeout makes a connection WAIT (up to 5s) for the SQLite write lock
-	// instead of failing with "database is locked" — essential when several
-	// worker processes hit the same file.
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", cfg.dbPath)
+	switch *mode {
+	case "relay":
+		// Outbox relay: atomically claim due jobs and publish them to Kafka.
+		runRelay(db, cfg, broker, topic, *once)
+	case "consumer":
+		// Kafka consumer: deliver each event via the M2 write-back state machine.
+		runConsumer(broker, topic, "writeback", makeWritebackHandler(db, cfg))
+	default: // "poll" — the M2 behaviour: poll the outbox and deliver directly.
+		log.Printf("worker started: %d goroutines, db=%s (push=%v, failureRate=%.2f)",
+			*workers, cfg.dbPath, cfg.enablePush, cfg.failureRate)
+		for {
+			if n := runBatch(db, cfg, *workers); n == 0 {
+				log.Printf("no due jobs")
+			}
+			if *once {
+				return
+			}
+			time.Sleep(2 * time.Second)
+		}
+	}
+}
+
+// openDB opens the SQLite database with a busy_timeout so concurrent writers
+// (multiple processes) wait for the write lock instead of failing outright.
+func openDB(dbPath string) *sql.DB {
+	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)", dbPath)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
-	defer db.Close()
 	if err := db.Ping(); err != nil {
-		log.Fatalf("cannot reach db at %s: %v", cfg.dbPath, err)
+		log.Fatalf("cannot reach db at %s: %v", dbPath, err)
 	}
+	return db
+}
 
-	log.Printf("worker started: %d goroutines, db=%s (push=%v, failureRate=%.2f)",
-		*workers, cfg.dbPath, cfg.enablePush, cfg.failureRate)
-
-	for {
-		n := runBatch(db, cfg, *workers)
-		if n == 0 {
-			log.Printf("no due jobs")
-		}
-		if *once {
-			return
-		}
-		time.Sleep(2 * time.Second)
+// findJobByID loads one outbox job by id. found is false if the row is gone.
+// The consumer re-reads the row this way so the DB — not the Kafka message —
+// remains the source of truth for a job's current state.
+func findJobByID(db *sql.DB, id int64) (PushJob, bool, error) {
+	var j PushJob
+	err := db.QueryRow(
+		`SELECT id, internal_sku, platform, target_quantity, status, attempts, max_attempts, next_attempt_at
+		 FROM push_jobs WHERE id = ?`, id).
+		Scan(&j.ID, &j.InternalSKU, &j.Platform, &j.TargetQty, &j.Status, &j.Attempts, &j.MaxAttempts, &j.NextAttemptAt)
+	if err == sql.ErrNoRows {
+		return j, false, nil
 	}
+	if err != nil {
+		return j, false, err
+	}
+	return j, true, nil
 }
 
 // runBatch delivers all currently-due jobs using a pool of numWorkers
