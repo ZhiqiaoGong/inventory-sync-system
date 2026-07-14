@@ -1,0 +1,11 @@
+# Keep the Node image build context small and reproducible.
+node_modules
+.git
+*.db
+*.db-wal
+*.db-shm
+go-worker
+docs
+.github
+.claude
+demo.db

@@ -218,6 +218,34 @@ violations), webhook signature verification over real HTTP, and a multi-process 
 (4 workers racing over the same orders). CI runs the tests, the formatting check, and the
 end-to-end demo on Node 20 and 22.
 
+## v2: scaling out (Go worker + Kafka)
+
+The single-host SQLite outbox above is right for a prototype. To demonstrate the scale-out path,
+the write-back delivery is also available as a separate service: a Go worker
+([`go-worker/`](go-worker/)) that consumes stock-change events from Kafka and delivers them,
+reusing the same retry/backoff/dead-letter state machine. The full pipeline runs in containers:
+
+```
+app (Node) --enqueue--> outbox --relay(Go)--> Kafka --consumer(Go)--> platform write-back
+```
+
+- **app** enqueues write-backs to the outbox in the same transaction as the stock change
+  (`DEFER_WRITEBACK=true` leaves delivery to the worker pipeline).
+- **relay** (Go) atomically claims due outbox jobs and publishes them to Kafka, keyed by SKU.
+- **consumer** (Go) re-reads each job from the DB and delivers it — so the DB stays the source of
+  truth and redelivered messages are idempotent. Delivery is exactly-once even across multiple
+  worker processes (atomic lease-based claiming, verified under `go test -race`). Independent
+  consumer groups fan out (e.g. an `audit` group sees every event).
+
+```bash
+docker compose up --build            # app + relay + consumer + Redpanda (Kafka)
+curl -X POST localhost:3000/sync/all # create tier1 sales; watch them flow through the pipeline
+docker compose down -v               # stop and wipe the shared volume
+```
+
+The design rationale (why an outbox relay instead of Node publishing to Kafka directly, why the
+consumer re-reads the DB) is in [docs/DESIGN.md](docs/DESIGN.md) and [go-worker/README.md](go-worker/README.md).
+
 ## Going live
 
 Set `PLATFORM_MODE=live` in `.env` and fill in the Shopify/Etsy credentials. Two things to know:

@@ -1,0 +1,7 @@
+# Keep the build context small and reproducible.
+worker
+*.db
+*.db-wal
+*.db-shm
+Dockerfile
+.dockerignore

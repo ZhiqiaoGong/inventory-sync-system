@@ -1,0 +1,86 @@
+# Full v2 stack, all in containers on one Docker network:
+#
+#   app       Node inventory API + dashboard (enqueues write-backs to the outbox)
+#   relay     Go worker: claims outbox jobs and publishes them to Kafka
+#   consumer  Go worker: consumes Kafka and delivers the write-backs
+#   redpanda  Kafka-compatible broker
+#
+# The three app/worker services share one SQLite file via a named volume
+# (single host, so SQLite is fine). The app runs with DEFER_WRITEBACK=true so
+# delivery is handled entirely by the relay + consumer pipeline.
+#
+#   docker compose up --build
+#   curl -X POST localhost:3000/sync/all      # create some tier1 sales
+#   open http://localhost:3000                # watch them get delivered
+#   docker compose down -v                    # stop and wipe the volume
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      # Two listeners: "internal" for other containers (advertised as redpanda:9092),
+      # "external" for tools on the host machine (advertised as localhost:19092).
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092" # host access
+      - "9644:9644" # admin API
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build: .
+    environment:
+      DB_PATH: /data/inventory.db
+      PLATFORM_MODE: mock
+      SEED_SAMPLE_ON_START: "true"
+      DEFER_WRITEBACK: "true" # enqueue only; the worker pipeline delivers
+      SHOPIFY_WEBHOOK_SECRET: mock-webhook-secret
+    ports:
+      - "3000:3000"
+    volumes:
+      - dbdata:/data
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  relay:
+    build: ./go-worker
+    command: ["-mode=relay"]
+    environment:
+      WORKER_DB_PATH: /data/inventory.db
+      KAFKA_BROKER: redpanda:9092
+      KAFKA_TOPIC: stock-changes
+    volumes:
+      - dbdata:/data
+    depends_on:
+      app:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+  consumer:
+    build: ./go-worker
+    command: ["-mode=consumer"]
+    environment:
+      WORKER_DB_PATH: /data/inventory.db
+      KAFKA_BROKER: redpanda:9092
+      KAFKA_TOPIC: stock-changes
+      ENABLE_PLATFORM_PUSH: "true"
+      MOCK_PUSH_FAILURE_RATE: "0"
+    volumes:
+      - dbdata:/data
+    depends_on:
+      app:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+volumes:
+  dbdata:

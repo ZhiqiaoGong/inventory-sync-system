@@ -3,6 +3,9 @@ const { setShopifyInventoryAbsolute, updateEtsyListingInventory } = require('./p
 require('dotenv').config();
 
 const ENABLE_PLATFORM_PUSH = String(process.env.ENABLE_PLATFORM_PUSH).toLowerCase() === 'true';
+// When true, tier1 sales enqueue the write-back but do NOT deliver it inline;
+// the external Go worker pipeline (relay + Kafka + consumer) handles delivery.
+const DEFER_WRITEBACK = String(process.env.DEFER_WRITEBACK).toLowerCase() === 'true';
 const DEFAULT_LOW_STOCK_THRESHOLD = Number(process.env.DEFAULT_LOW_STOCK_THRESHOLD || 10);
 const SHOPIFY_LOCATION_ID = process.env.SHOPIFY_LOCATION_ID || null;
 
@@ -510,14 +513,22 @@ async function applySaleToInventory({ platform, externalOrderId, internalSku, qu
     })
     .immediate();
 
-  // Only tier1 with sync_enabled=1 writes back to the platforms.
+  // Only tier1 with sync_enabled=1 writes back to the platforms. The push job
+  // was already enqueued in the transaction above; here we optionally deliver
+  // it inline. In the v2 deployment (DEFER_WRITEBACK=true) delivery is handled
+  // entirely by the external Go worker pipeline (relay + Kafka + consumer), so
+  // we leave the job pending in the outbox instead of pushing here.
   if (shouldPush) {
-    await processDuePushJobs();
+    if (!DEFER_WRITEBACK) {
+      await processDuePushJobs();
+    }
     return {
-      status: 'synced',
-      message: oversold
-        ? 'tier1 SKU: oversold, stock clamped to 0 and write-back attempted'
-        : 'tier1 SKU: stock decremented and write-back attempted',
+      status: DEFER_WRITEBACK ? 'enqueued' : 'synced',
+      message: DEFER_WRITEBACK
+        ? 'tier1 SKU: stock decremented, write-back deferred to the worker pipeline'
+        : oversold
+          ? 'tier1 SKU: oversold, stock clamped to 0 and write-back attempted'
+          : 'tier1 SKU: stock decremented and write-back attempted',
       beforeUnits,
       afterUnits,
       oversold
