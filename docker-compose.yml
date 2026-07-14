@@ -26,10 +26,10 @@ services:
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
     ports:
-      - "19092:19092" # host access
-      - "9644:9644" # admin API
+      - '19092:19092' # host access
+      - '9644:9644' # admin API
     healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      test: ['CMD-SHELL', "rpk cluster health | grep -q 'Healthy:.*true'"]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -39,11 +39,11 @@ services:
     environment:
       DB_PATH: /data/inventory.db
       PLATFORM_MODE: mock
-      SEED_SAMPLE_ON_START: "true"
-      DEFER_WRITEBACK: "true" # enqueue only; the worker pipeline delivers
+      SEED_SAMPLE_ON_START: 'true'
+      DEFER_WRITEBACK: 'true' # enqueue only; the worker pipeline delivers
       SHOPIFY_WEBHOOK_SECRET: mock-webhook-secret
     ports:
-      - "3000:3000"
+      - '3000:3000'
     volumes:
       - dbdata:/data
     depends_on:
@@ -52,7 +52,7 @@ services:
 
   relay:
     build: ./go-worker
-    command: ["-mode=relay"]
+    command: ['-mode=relay']
     environment:
       WORKER_DB_PATH: /data/inventory.db
       KAFKA_BROKER: redpanda:9092
@@ -67,13 +67,13 @@ services:
 
   consumer:
     build: ./go-worker
-    command: ["-mode=consumer"]
+    command: ['-mode=consumer']
     environment:
       WORKER_DB_PATH: /data/inventory.db
       KAFKA_BROKER: redpanda:9092
       KAFKA_TOPIC: stock-changes
-      ENABLE_PLATFORM_PUSH: "true"
-      MOCK_PUSH_FAILURE_RATE: "0"
+      ENABLE_PLATFORM_PUSH: 'true'
+      MOCK_PUSH_FAILURE_RATE: '0'
     volumes:
       - dbdata:/data
     depends_on:
