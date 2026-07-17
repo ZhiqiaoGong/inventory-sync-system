@@ -28,7 +28,35 @@ the bootstrap output in the system log.
 
 ## Launching
 
-EC2 → Launch instance:
+One command, from the repo root:
+
+```bash
+aws ec2 run-instances \
+  --image-id "$(aws ssm get-parameter \
+      --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 \
+      --query Parameter.Value --output text)" \
+  --instance-type t4g.small \
+  --key-name inventory-sync-key \
+  --security-group-ids <sg-id> \
+  --associate-public-ip-address \
+  --block-device-mappings \
+    '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":12,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
+  --user-data file://deploy/bootstrap.sh \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=inventory-sync-demo}]'
+```
+
+Then wait for the box to finish provisioning itself and print its address:
+
+```bash
+aws ec2 wait instance-running --instance-ids <id>
+aws ec2 describe-instances --instance-ids <id> \
+  --query 'Reservations[].Instances[].PublicIpAddress' --output text
+```
+
+**Measured: 121 seconds from `run-instances` to `/health` returning `{"ok":true}`**,
+with no SSH and no manual step in between.
+
+The settings that matter, if you launch from the console instead:
 
 | Setting        | Value                                                         |
 | -------------- | ------------------------------------------------------------- |
@@ -44,15 +72,17 @@ EC2 → Launch instance:
 The AMI architecture is the easy one to get wrong: pick x86 by accident and
 `t4g.small` vanishes from the instance type list with no explanation.
 
-With the script in user data the instance provisions itself on first boot —
-allow ~5 minutes for image builds on 2 vCPUs, then open `http://<public-ip>:3000`.
-
-To run it by hand on a box that is already up:
+To re-run the script on a box that is already up:
 
 ```bash
 scp -i ~/.ssh/inventory-sync-key.pem deploy/bootstrap.sh ec2-user@<ip>:/tmp/
 ssh -i ~/.ssh/inventory-sync-key.pem ec2-user@<ip> 'sudo bash /tmp/bootstrap.sh'
 ```
+
+The CLI needs an IAM user with `AmazonEC2FullAccess` (not root credentials) and
+`aws configure` pointed at `us-west-2`. The `ssm get-parameter` call that
+resolves the current AMI needs `AmazonSSMReadOnlyAccess` on top of that;
+without it, pass a known-good `--image-id` directly.
 
 ## Verifying
 
@@ -76,11 +106,22 @@ sudo docker compose logs consumer   # [writeback] job #N ... -> succeeded
 
 **Terminate** the instance when you're done — stopping it keeps billing the EBS
 volume, and there is nothing on the box worth preserving. Terminate takes the
-volume with it. The key pair and security group are free to leave in place;
-they are reused by the next launch.
+volume with it (`DeleteOnTermination`). The key pair and security group are free
+to leave in place; they are reused by the next launch.
 
-Afterwards, confirm nothing is left billing: EC2 → Instances (terminated),
-Volumes (empty), Elastic IPs (empty).
+```bash
+aws ec2 terminate-instances --instance-ids <id>
+```
+
+Afterwards, confirm nothing is left billing:
+
+```bash
+aws ec2 describe-instances \
+  --filters Name=instance-state-name,Values=running,stopped,pending \
+  --query 'Reservations[].Instances[].InstanceId'   # []
+aws ec2 describe-volumes --query 'Volumes[].VolumeId'         # []
+aws ec2 describe-addresses --query 'Addresses[].PublicIp'     # []
+```
 
 ## Costs
 
