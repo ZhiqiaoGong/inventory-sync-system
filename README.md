@@ -246,6 +246,11 @@ docker compose down -v               # stop and wipe the shared volume
 The design rationale (why an outbox relay instead of Node publishing to Kafka directly, why the
 consumer re-reads the DB) is in [docs/DESIGN.md](docs/DESIGN.md) and [go-worker/README.md](go-worker/README.md).
 
+The same compose file deploys to a single EC2 box — [deploy/bootstrap.sh](deploy/bootstrap.sh) takes
+a bare Amazon Linux host to a running stack as EC2 user data, so the instance is disposable rather
+than pet. [deploy/README.md](deploy/README.md) covers the launch settings, why one box under compose
+instead of ECS, and what it costs.
+
 ## Going live
 
 Set `PLATFORM_MODE=live` in `.env` and fill in the Shopify/Etsy credentials. Two things to know:
