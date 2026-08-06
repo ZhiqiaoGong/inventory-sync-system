@@ -79,12 +79,12 @@ test('tier2 sale decrements internal stock but does not push', async () => {
   assert.equal(pushCount.n, 0);
 });
 
-test('tier3 with no unit-level stock is tracked only and never decremented', async () => {
+test('a SKU with no unit-level stock records the order and never decrements', async () => {
   const [result] = await ingestShopifyOrders([
     { id: 300, name: '#300', line_items: [{ sku: 'T3', quantity: 1 }] }
   ]);
 
-  assert.equal(result.items[0].status, 'tracked_only');
+  assert.equal(result.items[0].status, 'no_unit_stock');
   assert.equal(snapshotFor('T3').available_units, null);
 });
 

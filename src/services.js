@@ -465,11 +465,12 @@ async function applySaleToInventory({ platform, externalOrderId, internalSku, qu
     throw new Error(`internal_sku not found: ${internalSku}`);
   }
 
-  // If this SKU has no unit-level stock, it cannot be auto-decremented.
-  // This is exactly the tier2 / tier3 case.
+  // If this SKU has no unit-level stock there is nothing to decrement: the order
+  // is recorded, but stock is untouched. Distinct from tier2 below, which does
+  // decrement and simply never pushes — hence a separate status.
   if (item.available_units === null || item.available_units === undefined) {
     return {
-      status: 'tracked_only',
+      status: 'no_unit_stock',
       message: 'this SKU has no reliable unit-level stock; order recorded but not auto-decremented'
     };
   }
