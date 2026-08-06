@@ -14,3 +14,6 @@ node_modules/
 
 # Logs
 *.log
+
+# Personal study notes (local only)
+STUDY.zh.md
