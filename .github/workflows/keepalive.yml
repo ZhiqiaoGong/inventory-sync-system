@@ -8,8 +8,11 @@ name: Keep demo awake
 
 on:
   schedule:
-    # Every 10 minutes. GitHub may delay scheduled runs by a few minutes;
-    # that's fine — Render only sleeps after 15 minutes of silence.
+    # Asks for every 10 minutes, but GitHub runs scheduled workflows on a
+    # best-effort basis and skips them freely under load — observed gaps are
+    # hours, not minutes. So this keeps the demo warm only some of the time,
+    # and a ping that lands after the instance has already slept pays the cold
+    # start itself. A external uptime pinger is the reliable way to do this.
     - cron: '*/10 * * * *'
   workflow_dispatch: {}
 
@@ -18,5 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping /health
+        # Best-effort by design: a missed ping means one slow first visit, not
+        # a broken build. Failing the job would just put a red X on the repo
+        # for something no commit caused and no commit can fix.
+        continue-on-error: true
         run: |
           curl -sS --max-time 120 --retry 2 https://inventory-sync-demo.onrender.com/health
