@@ -472,8 +472,7 @@ function requeueDeadLetterJob(jobId, now = Date.now()) {
   }
 
   const item = statements.findInventoryItemByInternalSku.get(job.internal_sku);
-  const target =
-    item && item.available_units !== null ? item.available_units : job.target_quantity;
+  const target = item && item.available_units !== null ? item.available_units : job.target_quantity;
   statements.requeuePushJob.run(target, now, jobId);
   return statements.getPushJobById.get(jobId);
 }

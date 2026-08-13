@@ -150,20 +150,20 @@ processed by exactly one worker, stock decremented exactly once per order, ledge
 
 ## HTTP API
 
-| Method | Path                     | Description                                         |
-| ------ | ------------------------ | --------------------------------------------------- |
-| GET    | `/health`                | Health check                                        |
-| GET    | `/inventory`             | Current inventory snapshot                          |
-| GET    | `/inventory/low-stock`   | Items at or below their low-stock threshold         |
-| POST   | `/sync/shopify`          | Pull and process Shopify orders                     |
-| POST   | `/sync/etsy`             | Pull and process Etsy receipts                      |
-| POST   | `/sync/all`              | Pull and process both platforms                     |
-| POST   | `/webhooks/shopify`      | Signed (HMAC-SHA256) order webhook, replay-safe     |
-| POST   | `/push-jobs/process`     | Deliver due write-back jobs (cron-friendly)         |
-| GET    | `/push-jobs/dead-letter` | Write-backs that exhausted retries                  |
+| Method | Path                     | Description                                            |
+| ------ | ------------------------ | ------------------------------------------------------ |
+| GET    | `/health`                | Health check                                           |
+| GET    | `/inventory`             | Current inventory snapshot                             |
+| GET    | `/inventory/low-stock`   | Items at or below their low-stock threshold            |
+| POST   | `/sync/shopify`          | Pull and process Shopify orders                        |
+| POST   | `/sync/etsy`             | Pull and process Etsy receipts                         |
+| POST   | `/sync/all`              | Pull and process both platforms                        |
+| POST   | `/webhooks/shopify`      | Signed (HMAC-SHA256) order webhook, replay-safe        |
+| POST   | `/push-jobs/process`     | Deliver due write-back jobs (cron-friendly)            |
+| GET    | `/push-jobs/dead-letter` | Write-backs that exhausted retries                     |
 | POST   | `/push-jobs/:id/requeue` | Requeue a dead-lettered job at the current stock level |
-| POST   | `/reconcile`             | Replay the ledger and report drift/chain violations |
-| GET    | `/reconciliations`       | Recent reconciliation runs (audit trail)            |
+| POST   | `/reconcile`             | Replay the ledger and report drift/chain violations    |
+| GET    | `/reconciliations`       | Recent reconciliation runs (audit trail)               |
 
 ## Architecture
 
