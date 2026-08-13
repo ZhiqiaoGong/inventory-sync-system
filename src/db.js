@@ -385,8 +385,8 @@ const statements = {
 
   requeuePushJob: db.prepare(`
     UPDATE push_jobs
-    SET status = 'pending', attempts = 0, next_attempt_at = ?, last_error = NULL,
-        updated_at = datetime('now')
+    SET status = 'pending', attempts = 0, target_quantity = ?, next_attempt_at = ?,
+        last_error = NULL, updated_at = datetime('now')
     WHERE id = ?
   `),
 

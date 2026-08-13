@@ -451,10 +451,30 @@ function listDeadLetterJobs() {
 }
 
 // Give a dead-lettered job a fresh set of attempts (a human decided to retry).
+//
+// A dead-lettered job carries the stock level from whenever its sale happened,
+// and coalescing only refreshes rows that are still pending — so by the time an
+// operator gets here, that target can be arbitrarily stale. Two cases:
+//
+//   - a pending job already covers this SKU+platform: it holds a newer target,
+//     so reviving this one would queue an older value behind it. The debt has
+//     already been taken over; retire this row instead of racing it.
+//   - nothing else covers it: the write-back is still owed, but the target has
+//     to be re-read from current stock before the job goes back on the queue.
 function requeueDeadLetterJob(jobId, now = Date.now()) {
   const job = statements.getPushJobById.get(jobId);
   if (!job || job.status !== 'dead_letter') return null;
-  statements.requeuePushJob.run(now, jobId);
+
+  const live = statements.findPendingPushJob.get(job.internal_sku, job.platform);
+  if (live) {
+    statements.markPushJobSkipped.run(job.attempts, `superseded by job #${live.id}`, jobId);
+    return statements.getPushJobById.get(jobId);
+  }
+
+  const item = statements.findInventoryItemByInternalSku.get(job.internal_sku);
+  const target =
+    item && item.available_units !== null ? item.available_units : job.target_quantity;
+  statements.requeuePushJob.run(target, now, jobId);
   return statements.getPushJobById.get(jobId);
 }
 

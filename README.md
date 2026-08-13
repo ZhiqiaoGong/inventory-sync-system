@@ -73,7 +73,10 @@ semantics:
 - **Retry with exponential backoff + dead-letter queue.** Failed pushes retry on a
   `base * 2^attempt` schedule (configurable); after `PUSH_MAX_ATTEMPTS` they land in a dead-letter
   queue (`GET /push-jobs/dead-letter`) for a human, who can requeue them once the platform
-  recovers. Every attempt is recorded in `sync_push_logs`.
+  recovers. Requeueing re-reads the target from current stock — a dead-lettered job's stored
+  target is a snapshot, and coalescing only refreshes rows that are still pending — and retires
+  the job instead if a newer one already covers that SKU+platform. Every attempt is recorded in
+  `sync_push_logs`.
 - **Ledger reconciliation.** Every stock change (imports included) appends a before/after row to
   `inventory_ledger`. Reconciliation replays the chain per SKU and cross-checks it against live
   stock two ways: chain integrity (`before + change == after`, gapless links) and drift (final
@@ -158,7 +161,7 @@ processed by exactly one worker, stock decremented exactly once per order, ledge
 | POST   | `/webhooks/shopify`      | Signed (HMAC-SHA256) order webhook, replay-safe     |
 | POST   | `/push-jobs/process`     | Deliver due write-back jobs (cron-friendly)         |
 | GET    | `/push-jobs/dead-letter` | Write-backs that exhausted retries                  |
-| POST   | `/push-jobs/:id/requeue` | Give a dead-lettered job a fresh set of attempts    |
+| POST   | `/push-jobs/:id/requeue` | Requeue a dead-lettered job at the current stock level |
 | POST   | `/reconcile`             | Replay the ledger and report drift/chain violations |
 | GET    | `/reconciliations`       | Recent reconciliation runs (audit trail)            |
 

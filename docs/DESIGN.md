@@ -101,6 +101,12 @@ version) records failures but never repairs them.
 idempotent absolute sets, which is also why coalescing is sound. Dead-letter requeue is a human
 decision by design; the system does not guess when an outage is over.
 
+Coalescing is also what keeps a pending job's target current, so a job that leaves `pending`
+stops being refreshed and its target becomes a snapshot. Requeue therefore re-reads the target
+from `inventory_items`, and retires the job as `skipped` when a newer pending job already covers
+that SKU+platform — otherwise a human requeue could put a stale absolute value on the queue
+behind a fresher one, and the delivery order would decide which stuck.
+
 ## 6. Append-only ledger + reconciliation instead of full event sourcing
 
 **Problem.** When stock is wrong, "wrong since when, and why?" must be answerable. And any code

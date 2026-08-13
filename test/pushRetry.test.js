@@ -140,6 +140,100 @@ test('a requeued dead-letter job succeeds once the platform recovers', async () 
   assert.ok(successLog);
 });
 
+function tier1Row(sku, units, variantId) {
+  return {
+    internal_sku: sku,
+    product_name: sku,
+    tier: 'tier1',
+    sync_enabled: '1',
+    available_units: String(units),
+    low_stock_threshold: '5',
+    shopify_sku: sku,
+    shopify_variant_id: String(variantId),
+    shopify_inventory_item_id: '11',
+    shopify_location_id: '22'
+  };
+}
+
+function jobById(id) {
+  return db.prepare('SELECT * FROM push_jobs WHERE id = ?').get(id);
+}
+
+function pendingShopifyJobs(sku) {
+  return db
+    .prepare(
+      "SELECT * FROM push_jobs WHERE internal_sku = ? AND platform = 'shopify' AND status = 'pending'"
+    )
+    .all(sku);
+}
+
+// Drive a job from its first failed attempt to dead_letter.
+async function burnRemainingAttempts() {
+  let t = Date.now();
+  for (let i = 0; i < 4; i++) {
+    t += 60_000;
+    await processDuePushJobs({ now: t });
+  }
+}
+
+test('requeue re-reads the target, so a stale job cannot undo a newer delivery', async () => {
+  importInventoryRows([tier1Row('STALE', 30, 3001)]);
+  process.env.MOCK_PUSH_FAILURE_RATE = '1';
+
+  await ingestShopifyOrders([
+    { id: 300, name: '#300', line_items: [{ sku: 'STALE', variant_id: 3001, quantity: 5 }] }
+  ]);
+  const staleId = pendingShopifyJobs('STALE')[0].id;
+  await burnRemainingAttempts();
+  assert.equal(jobById(staleId).status, 'dead_letter');
+  assert.equal(jobById(staleId).target_quantity, 25, 'the stored target is a snapshot');
+
+  // The platform recovers and another sale lands, delivered by its own job.
+  process.env.MOCK_PUSH_FAILURE_RATE = '0';
+  await ingestShopifyOrders([
+    { id: 301, name: '#301', line_items: [{ sku: 'STALE', variant_id: 3001, quantity: 3 }] }
+  ]);
+
+  // Reviving the dead job verbatim would push the platform back up to 25.
+  const revived = requeueDeadLetterJob(staleId);
+  assert.equal(revived.status, 'pending');
+  assert.equal(revived.attempts, 0);
+  assert.equal(revived.target_quantity, 22, 'target is re-read from current stock');
+
+  await processDuePushJobs();
+  assert.equal(jobById(staleId).status, 'succeeded');
+  assert.equal(jobById(staleId).target_quantity, 22);
+});
+
+test('requeue retires a dead-letter job that a newer job already supersedes', async () => {
+  importInventoryRows([tier1Row('SUPERSEDED', 50, 4001)]);
+  process.env.MOCK_PUSH_FAILURE_RATE = '1';
+
+  await ingestShopifyOrders([
+    { id: 400, name: '#400', line_items: [{ sku: 'SUPERSEDED', variant_id: 4001, quantity: 5 }] }
+  ]);
+  const staleId = pendingShopifyJobs('SUPERSEDED')[0].id;
+  await burnRemainingAttempts();
+  assert.equal(jobById(staleId).status, 'dead_letter');
+
+  // Coalescing skips dead-letter rows, so this sale opens a second job.
+  await ingestShopifyOrders([
+    { id: 401, name: '#401', line_items: [{ sku: 'SUPERSEDED', variant_id: 4001, quantity: 3 }] }
+  ]);
+  const live = pendingShopifyJobs('SUPERSEDED');
+  assert.equal(live.length, 1);
+  assert.equal(live[0].target_quantity, 42);
+
+  const result = requeueDeadLetterJob(staleId);
+  assert.equal(result.status, 'skipped', 'the older job is retired, not put back on the queue');
+  assert.match(result.last_error, /^superseded by job #/);
+  assert.equal(
+    pendingShopifyJobs('SUPERSEDED').length,
+    1,
+    'at most one pending job per SKU+platform survives a requeue'
+  );
+});
+
 test('requeueing a non-dead-letter job is refused', () => {
   const succeeded = shopifyJob();
   assert.equal(requeueDeadLetterJob(succeeded.id), null);
