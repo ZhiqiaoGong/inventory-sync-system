@@ -230,6 +230,7 @@ reusing the same retry/backoff/dead-letter state machine. The full pipeline runs
 
 ```
 app (Node) --enqueue--> outbox --relay(Go)--> Kafka --consumer(Go)--> platform write-back
+                                                \--audit(Go)-----> event log (own offsets)
 ```
 
 - **app** enqueues write-backs to the outbox in the same transaction as the stock change
@@ -237,11 +238,13 @@ app (Node) --enqueue--> outbox --relay(Go)--> Kafka --consumer(Go)--> platform w
 - **relay** (Go) atomically claims due outbox jobs and publishes them to Kafka, keyed by SKU.
 - **consumer** (Go) re-reads each job from the DB and delivers it — so the DB stays the source of
   truth and redelivered messages are idempotent. Delivery is exactly-once even across multiple
-  worker processes (atomic lease-based claiming, verified under `go test -race`). Independent
-  consumer groups fan out (e.g. an `audit` group sees every event).
+  worker processes (atomic lease-based claiming, verified under `go test -race`).
+- **audit** (Go) is a second consumer group on the same topic, with its own offsets — it sees every
+  event the write-back group sees. It touches no database, which is what makes it a fan-out
+  consumer rather than a second worker.
 
 ```bash
-docker compose up --build            # app + relay + consumer + Redpanda (Kafka)
+docker compose up --build            # app + relay + consumer + audit + Redpanda (Kafka)
 curl -X POST localhost:3000/sync/all # create tier1 sales; watch them flow through the pipeline
 docker compose down -v               # stop and wipe the shared volume
 ```

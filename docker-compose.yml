@@ -3,10 +3,11 @@
 #   app       Node inventory API + dashboard (enqueues write-backs to the outbox)
 #   relay     Go worker: claims outbox jobs and publishes them to Kafka
 #   consumer  Go worker: consumes Kafka and delivers the write-backs
+#   audit     Go worker: a second consumer group over the same topic (fan-out)
 #   redpanda  Kafka-compatible broker
 #
-# The three app/worker services share one SQLite file via a named volume
-# (single host, so SQLite is fine). The app runs with DEFER_WRITEBACK=true so
+# app/relay/consumer share one SQLite file via a named volume (single host, so
+# SQLite is fine); audit reads only Kafka, so it needs no database at all. The app runs with DEFER_WRITEBACK=true so
 # delivery is handled entirely by the relay + consumer pipeline.
 #
 #   docker compose up --build
@@ -79,6 +80,19 @@ services:
     depends_on:
       app:
         condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+  # Second consumer group on the same topic: it sees every event the writeback
+  # group sees, on its own offsets. Nothing here touches the database — that is
+  # what makes it a true fan-out consumer rather than a second worker.
+  audit:
+    build: ./go-worker
+    command: ['-mode=audit']
+    environment:
+      KAFKA_BROKER: redpanda:9092
+      KAFKA_TOPIC: stock-changes
+    depends_on:
       redpanda:
         condition: service_healthy
 
