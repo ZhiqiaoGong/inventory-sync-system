@@ -154,10 +154,23 @@ async function benchContended() {
     )
     .get().n;
 
+  // How the 2,000 wins were split across the workers. This is the evidence that
+  // the processes actually overlapped: run sequentially, the first worker would
+  // claim all 2,000 and the rest would report nothing but duplicates.
+  const perWorker = counts.map((c) => c.processed || 0);
+  // A worker can legitimately win nothing (it was slow to spawn and the others
+  // had already claimed every order), so the signal is "more than one winner",
+  // not "everyone won".
+  const winners = perWorker.filter((n) => n > 0).length;
+
   return {
     seconds,
     uniquePerSec: CONTENDED_ORDERS / seconds,
     attemptsPerSec: attempts / seconds,
+    perWorker,
+    winners,
+    // Sequential runs would give the first worker all 2,000 and the rest zero.
+    contended: winners > 1,
     exactlyOnce: processed === CONTENDED_ORDERS && events === CONTENDED_ORDERS && stockOk === 0
   };
 }
@@ -190,6 +203,11 @@ async function main() {
   );
   console.log(
     `   throughput : ${fmt(c.uniquePerSec)} unique orders/sec (${fmt(c.attemptsPerSec)} attempts/sec)`
+  );
+  console.log(
+    `   won per proc: ${c.perWorker.join(' / ')} of ${CONTENDED_ORDERS}` +
+      `  (${c.winners}/${WORKERS} processes won races` +
+      `${c.contended ? ', so the runs overlapped' : ' — NOT CONTENDED, investigate'})`
   );
   console.log(`   exactly-once verified: ${c.exactlyOnce ? 'YES' : 'NO — INVESTIGATE'}`);
 
