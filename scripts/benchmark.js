@@ -45,6 +45,8 @@ const SINGLE_ORDERS = 2000;
 const TIER1_ORDERS = 1000;
 const WORKERS = 4;
 const CONTENDED_ORDERS = 2000;
+const CONTENDED_FIRST_ID = 200001;
+const CONTENDED_LAST_ID = CONTENDED_FIRST_ID + CONTENDED_ORDERS - 1;
 
 function seed(prefix, tier, withMappings) {
   const rows = [];
@@ -127,8 +129,8 @@ function runWorker() {
       process.execPath,
       [
         path.join(__dirname, 'benchWorker.js'),
-        String(200001),
-        String(200000 + CONTENDED_ORDERS),
+        String(CONTENDED_FIRST_ID),
+        String(CONTENDED_LAST_ID),
         String(SKUS)
       ],
       { env: process.env, timeout: 120000 },
@@ -154,6 +156,31 @@ async function benchContended() {
     )
     .get().n;
 
+  // The stock check above only proves stock agrees with the ledger, and both
+  // move in the same transaction — so a double-applied sale writes two ledger
+  // rows and still balances. These two tie the ledger back to the orders:
+  // exactly one stock movement per recorded order, no more and no fewer.
+  const range = [CONTENDED_FIRST_ID, CONTENDED_LAST_ID];
+  const doubleApplied = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT external_order_id FROM inventory_ledger
+         WHERE reason = 'sale' AND CAST(external_order_id AS INTEGER) BETWEEN ? AND ?
+         GROUP BY external_order_id HAVING COUNT(*) > 1
+       )`
+    )
+    .get(...range).n;
+  const missingLedger = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM order_events e
+       WHERE CAST(e.external_order_id AS INTEGER) BETWEEN ? AND ?
+         AND NOT EXISTS (
+           SELECT 1 FROM inventory_ledger l
+           WHERE l.external_order_id = e.external_order_id AND l.reason = 'sale'
+         )`
+    )
+    .get(...range).n;
+
   // How the 2,000 wins were split across the workers. This is the evidence that
   // the processes actually overlapped: run sequentially, the first worker would
   // claim all 2,000 and the rest would report nothing but duplicates.
@@ -169,9 +196,16 @@ async function benchContended() {
     attemptsPerSec: attempts / seconds,
     perWorker,
     winners,
+    doubleApplied,
+    missingLedger,
     // Sequential runs would give the first worker all 2,000 and the rest zero.
     contended: winners > 1,
-    exactlyOnce: processed === CONTENDED_ORDERS && events === CONTENDED_ORDERS && stockOk === 0
+    exactlyOnce:
+      processed === CONTENDED_ORDERS &&
+      events === CONTENDED_ORDERS &&
+      stockOk === 0 &&
+      doubleApplied === 0 &&
+      missingLedger === 0
   };
 }
 
@@ -208,6 +242,9 @@ async function main() {
     `   won per proc: ${c.perWorker.join(' / ')} of ${CONTENDED_ORDERS}` +
       `  (${c.winners}/${WORKERS} processes won races` +
       `${c.contended ? ', so the runs overlapped' : ' — NOT CONTENDED, investigate'})`
+  );
+  console.log(
+    `   per-order   : ${c.doubleApplied} orders applied twice, ${c.missingLedger} never applied`
   );
   console.log(`   exactly-once verified: ${c.exactlyOnce ? 'YES' : 'NO — INVESTIGATE'}`);
 
