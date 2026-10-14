@@ -61,13 +61,21 @@ SSH and no manual step in between:
 | First measured | 1            | **121 s**                     |
 | Re-measured    | 5 (`RUNS=5`) | **161 – 172 s, median 164 s** |
 
-The 121 s was a single observation and no longer reproduces; the re-measured
-spread is only 11 s wide, so the process itself is consistent — what moved is
-the work it has to do. Everything the box builds grows over time: a newer
-AL2023 AMI, newer `dnf` packages, and a `npm ci` / `go build` whose dependency
-trees are bigger than when the first number was taken. Image build dominates
-the total (2 vCPUs, no layer cache on a fresh box), so that growth lands
-straight on the clock.
+The 121 s was a single observation (2026-07-16) and no longer reproduces. The
+gap is not yet explained, and the obvious guess is wrong: since that commit
+`package-lock.json`, `go.sum`, and both Dockerfiles are untouched and the Go
+source is the same 742 lines, so `npm ci` and `go build` are doing identical
+work. What did change is the OS layer — a newer AL2023 AMI and whatever `dnf`
+now resolves `docker` to — and that is unmeasured.
+
+Worth noting that the five re-runs span only 11 s, so 121 s sits ~40 s below a
+tight distribution. That is a wide miss for run-to-run noise, which makes a
+different start/stop point in the original hand-timing at least as likely an
+explanation as the box having gotten slower. The honest version is that the
+first number was taken without a script and cannot be audited; this one can.
+
+Getting a real answer means per-step timings out of the cloud-init log rather
+than another end-to-end number.
 
 What has not moved is the part worth claiming: **nothing in between needs a
 human.** `deploy/measure.sh` reproduces the figure rather than asking anyone to
