@@ -56,6 +56,22 @@ aws ec2 describe-instances --instance-ids <id> \
 **Measured: 121 seconds from `run-instances` to `/health` returning `{"ok":true}`**,
 with no SSH and no manual step in between.
 
+That is a single observation, not a distribution. Image build dominates it —
+`npm ci` plus a Go build on 2 vCPUs with no layer cache — so network and
+registry speed move the number; the part that does not move is that nothing in
+between needs a human. `deploy/measure.sh` reproduces the measurement rather
+than asking anyone to take it on trust, and takes `RUNS=n` for a spread:
+
+```bash
+SG_ID=<sg-id> bash deploy/measure.sh            # one run, terminates after
+SG_ID=<sg-id> RUNS=5 bash deploy/measure.sh     # min / median / max
+```
+
+It starts the clock at `run-instances`, polls `/health` from outside the box,
+and terminates the instance when the measurement lands (`KEEP=1` to leave it
+up). Each run bills a few minutes of `t4g.small`, so a handful costs under a
+cent.
+
 The settings that matter, if you launch from the console instead:
 
 | Setting        | Value                                                         |

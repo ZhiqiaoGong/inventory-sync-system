@@ -50,7 +50,11 @@ rm -rf "$APP_DIR"
 git clone --depth 1 "$REPO_URL" "$APP_DIR"
 chown -R ec2-user:ec2-user "$APP_DIR"
 
-log "building images (a few minutes on 2 vCPUs)"
+# Everything up to here is package installs and a shallow clone; this is the
+# step that dominates the boot time (npm ci + a Go build on 2 vCPUs, with no
+# layer cache on a fresh box). See deploy/README.md for a measured end-to-end
+# figure and deploy/measure.sh to reproduce it.
+log "building images (the slowest step: npm ci + go build on 2 vCPUs)"
 cd "$APP_DIR"
 docker compose up --build -d
 
