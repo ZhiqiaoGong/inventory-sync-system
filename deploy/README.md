@@ -53,14 +53,25 @@ aws ec2 describe-instances --instance-ids <id> \
   --query 'Reservations[].Instances[].PublicIpAddress' --output text
 ```
 
-**Measured: 121 seconds from `run-instances` to `/health` returning `{"ok":true}`**,
-with no SSH and no manual step in between.
+**Measured from `run-instances` to `/health` returning `{"ok":true}`**, with no
+SSH and no manual step in between:
 
-That is a single observation, not a distribution. Image build dominates it —
-`npm ci` plus a Go build on 2 vCPUs with no layer cache — so network and
-registry speed move the number; the part that does not move is that nothing in
-between needs a human. `deploy/measure.sh` reproduces the measurement rather
-than asking anyone to take it on trust, and takes `RUNS=n` for a spread:
+| When           | Samples      | Result                        |
+| -------------- | ------------ | ----------------------------- |
+| First measured | 1            | **121 s**                     |
+| Re-measured    | 5 (`RUNS=5`) | **161 – 172 s, median 164 s** |
+
+The 121 s was a single observation and no longer reproduces; the re-measured
+spread is only 11 s wide, so the process itself is consistent — what moved is
+the work it has to do. Everything the box builds grows over time: a newer
+AL2023 AMI, newer `dnf` packages, and a `npm ci` / `go build` whose dependency
+trees are bigger than when the first number was taken. Image build dominates
+the total (2 vCPUs, no layer cache on a fresh box), so that growth lands
+straight on the clock.
+
+What has not moved is the part worth claiming: **nothing in between needs a
+human.** `deploy/measure.sh` reproduces the figure rather than asking anyone to
+take it on trust, and takes `RUNS=n` for a spread:
 
 ```bash
 SG_ID=<sg-id> bash deploy/measure.sh            # one run, terminates after

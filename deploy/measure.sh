@@ -39,9 +39,27 @@ done
 
 aws() { command aws --region "$REGION" "$@"; }
 
-ami=$(aws ssm get-parameter \
-  --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 \
-  --query Parameter.Value --output text)
+# Resolving the AMI through SSM needs AmazonSSMReadOnlyAccess, which an
+# EC2-only IAM user does not have. Fall back to describe-images (covered by
+# AmazonEC2FullAccess) so the script works either way. AMI_ID overrides both.
+ami=${AMI_ID:-}
+if [ -z "$ami" ]; then
+  ami=$(aws ssm get-parameter \
+    --name /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64 \
+    --query Parameter.Value --output text 2>/dev/null || true)
+fi
+if [ -z "$ami" ] || [ "$ami" = "None" ]; then
+  echo "ssm lookup unavailable; resolving the AMI with describe-images" >&2
+  ami=$(aws ec2 describe-images --owners amazon \
+    --filters "Name=name,Values=al2023-ami-2023.*-kernel-6.1-arm64" \
+    "Name=state,Values=available" \
+    --query 'reverse(sort_by(Images,&CreationDate))[0].ImageId' --output text)
+fi
+[ -n "$ami" ] && [ "$ami" != "None" ] || {
+  echo "could not resolve an AL2023 arm64 AMI; pass AMI_ID=ami-..." >&2
+  exit 2
+}
+echo "ami $ami" >&2
 
 # One measurement: launch, wait for healthy, print seconds. Echoes the elapsed
 # time on stdout; everything else goes to stderr so the caller can collect it.
@@ -122,4 +140,10 @@ echo
 echo "run-instances → /health ok   (${#times[@]} run(s), $INSTANCE_TYPE, $REGION)"
 echo "  samples : $(printf '%s ' "${times[@]}")"
 echo "  min $min s · median $median s · max $max s"
-[ "$KEEP" = "1" ] && echo "  KEEP=1 — instances left running; terminate them yourself."
+if [ "$KEEP" = "1" ]; then
+  echo "  KEEP=1 — instances left running; terminate them yourself."
+fi
+
+# Explicit, because a bare `[ ... ] && echo` as the last command makes a
+# successful measurement exit 1 whenever the test is false.
+exit 0
